@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vector Wars combat verification</title>
+    <style>
+      body {
+        margin: 0;
+        background: #05090a;
+        color: #86fadd;
+        font: 13px monospace;
+      }
+      #stage {
+        width: 640px;
+        height: 360px;
+      }
+      #results {
+        padding: 24px;
+        white-space: pre-wrap;
+      }
+      button {
+        margin: 20px;
+        background: #86fadd;
+        color: #05090a;
+        border: 0;
+        padding: 15px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="run">Run deterministic combat verification</button>
+    <div id="stage"></div>
+    <pre id="results">Ready.</pre>
+    <script type="module" src="/tests/combat.ts"></script>
+  </body>
+</html>

@@ -124,6 +124,38 @@ document.querySelector("#run")!.addEventListener("click", () => {
     engine.restart();
     cancelAnimationFrame(game.frame);
     game.encounterDirector = new EncounterDirector([]);
+    const transport = game.enemies.find((e: any) => e.kind === "transport");
+    const convoyStart = transport.object.position.clone();
+    tick(1);
+    assert(
+      transport.object.position.distanceTo(convoyStart) > 20,
+      "An armored convoy travels along the sector road",
+    );
+    game.snapshot.missiles = 24;
+    for (let i = 0; i < 8 && transport.hp > 0; i++) {
+      const target = game.aimPoint(transport);
+      pose(target.x, target.z + 55);
+      game.invulnerable = 999;
+      game.target = transport;
+      game.snapshot.weapon = "missile";
+      game.fire(new THREE.Vector3(game.player.x, game.player.y, game.player.z));
+      tick(1);
+    }
+    assert(
+      transport.hp === 0 && game.snapshot.phase === "playing",
+      "Missiles destroy a moving transport without ending the mission",
+    );
+    const salvage = game.pickups.find((p: any) => p.salvage);
+    assert(!!salvage && salvage.active, "The convoy leaves recoverable cargo");
+    game.snapshot.health = 40;
+    game.updatePickups(1 / 120, salvage.object.position);
+    assert(
+      game.snapshot.health === 75 && !salvage.active,
+      "Recovering cargo repairs the craft",
+    );
+    engine.restart();
+    cancelAnimationFrame(game.frame);
+    game.encounterDirector = new EncounterDirector([]);
     const firstBoss = game.enemies.find((e: any) => e.kind === "boss");
     const originalBossHealth = firstBoss.hp;
     pose(BOSS_POSITION.x, BOSS_POSITION.z + 70);
@@ -330,6 +362,7 @@ for (const checkpoint of [
   "switchback",
   "canyon",
   "ash",
+  "convoy",
   "reactor",
   "meltdown",
   "debris",
@@ -374,6 +407,26 @@ for (const checkpoint of [
       );
       const seconds = checkpoint === "meltdown" ? 2.2 : 3.8;
       for (let i = 0; i < seconds * 120; i++) game.advanceSimulation(1 / 120);
+    }
+    if (checkpoint === "convoy") {
+      const transport = game.enemies.find((e: any) => e.kind === "transport");
+      const forward = new THREE.Vector3(
+        -Math.sin(transport.object.rotation.y),
+        0,
+        -Math.cos(transport.object.rotation.y),
+      );
+      const player = transport.object.position
+        .clone()
+        .addScaledVector(forward, -35);
+      Object.assign(game.player, {
+        x: player.x,
+        z: player.z,
+        y: terrainHeight(player.x, player.z, game.layout) + 1.7,
+        heading: transport.object.rotation.y,
+      });
+      game.cameraPosition.copy(player).addScaledVector(forward, -18);
+      game.cameraPosition.y += 12;
+      game.cameraLook.copy(transport.object.position);
     }
     game.renderScene(1 / 60);
     game.composer.render();

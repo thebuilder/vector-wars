@@ -16,7 +16,7 @@ export interface Settings {
 export interface Blip {
   x: number;
   z: number;
-  kind: "relay" | "boss" | "drone" | "repair" | "gate";
+  kind: "relay" | "boss" | "drone" | "transport" | "cargo" | "repair" | "gate";
   alive: boolean;
 }
 export interface Snapshot {
@@ -36,6 +36,8 @@ export interface Snapshot {
   bossMaxHealth: number;
   bossShielded: boolean;
   enemies: number;
+  convoys: number;
+  convoyDistance: number;
   x: number;
   z: number;
   heading: number;
@@ -142,6 +144,8 @@ export const initialSnapshot: Snapshot = {
   bossMaxHealth: 700,
   bossShielded: true,
   enemies: 8,
+  convoys: 2,
+  convoyDistance: 0,
   x: 0,
   z: 125,
   heading: 0,

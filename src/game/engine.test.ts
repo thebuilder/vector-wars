@@ -1,3 +1,4 @@
+import { ConvoyRoute } from "./convoys";
 import { EncounterDirector } from "./encounters";
 import { WORLDS } from "./worlds";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -52,6 +53,8 @@ function simulation() {
   Object.assign(game, {
     scene,
     layout: WORLDS[0],
+    convoyRoute: new ConvoyRoute(WORLDS[0]),
+    dynamic: new THREE.Group(),
     encounterDirector: new EncounterDirector([]),
     texture,
     enemies,
@@ -133,11 +136,73 @@ describe("combat and aftermath simulation", () => {
     expect(game.cameraPosition.distanceTo(camera)).toBeLessThan(0.1);
     for (let i = 0; i < 120; i++) game.renderScene(1 / 60);
     expect(Math.abs(game.cameraPosition.x - game.player.x)).toBeLessThan(0.1);
-    expect(game.cameraPosition.z - game.player.z).toBeGreaterThan(17);
+    expect(game.cameraPosition.z - game.player.z).toBeGreaterThan(12);
+    expect(game.cameraPosition.z - game.player.z).toBeLessThan(13);
+    game.player.vz = -100;
+    for (let i = 0; i < 120; i++) game.renderScene(1 / 60);
+    expect(game.cameraPosition.z - game.player.z).toBeLessThan(14.1);
     game.pause();
     const paused = game.cameraPosition.clone();
     game.renderScene(0.5);
     expect(game.cameraPosition.equals(paused)).toBe(true);
+  });
+  it("moves escorted transports along the road and freezes them on pause", () => {
+    const game = simulation();
+    game.spawnConvoy(0.12);
+    const transport = game.enemies.find((e: any) => e.kind === "transport");
+    const escorts = game.enemies.filter((e: any) => e.escort === transport);
+    expect(escorts).toHaveLength(2);
+    const before = transport.object.position.clone();
+    advance(game, 1);
+    expect(transport.object.position.distanceTo(before)).toBeGreaterThan(20);
+    expect(escorts[0].home.distanceTo(transport.object.position)).toBeLessThan(
+      0.1,
+    );
+    game.pause();
+    const paused = transport.object.position.clone();
+    advance(game, 3);
+    expect(transport.object.position.equals(paused)).toBe(true);
+    game.resume();
+    advance(game, 1);
+    expect(transport.object.position.distanceTo(paused)).toBeGreaterThan(20);
+  });
+  it("drops salvage on transport destruction without ending the mission or respawning its cargo", () => {
+    const game = simulation();
+    game.spawnConvoy(0.12);
+    const transport = game.enemies.find((e: any) => e.kind === "transport");
+    game.damageEnemy(transport, 1000);
+    expect(transport.hp).toBe(0);
+    expect(game.snapshot.phase).toBe("playing");
+    expect(game.snapshot.relays).toBe(0);
+    expect(game.snapshot.score).toBe(750);
+    expect(transport.object.visible).toBe(true);
+    const cargo = game.pickups[0];
+    expect(cargo.salvage).toBe(true);
+    game.snapshot.health = 40;
+    game.snapshot.missiles = 0;
+    game.player.boost = 0;
+    game.updatePickups(1 / 120, cargo.object.position);
+    expect(game.snapshot.health).toBe(75);
+    expect(game.snapshot.missiles).toBe(6);
+    expect(game.player.boost).toBe(100);
+    expect(game.snapshot.score).toBe(1250);
+    game.updatePickups(60, cargo.object.position);
+    expect(cargo.active).toBe(false);
+    expect(game.snapshot.score).toBe(1250);
+    game.damageEnemy(transport, 1000);
+    expect(game.pickups).toHaveLength(1);
+  });
+  it("pushes the player out of a heavy transport instead of letting it overlap", () => {
+    const game = simulation();
+    game.spawnConvoy(0.12);
+    const transport = game.enemies.find((e: any) => e.kind === "transport");
+    const p = transport.object.position;
+    Object.assign(game.player, { x: p.x + 3, z: p.z, y: p.y, vx: -30, vz: 0 });
+    game.updateEnemies(0, p.clone());
+    expect(
+      Math.hypot(game.player.x - p.x, game.player.z - p.z),
+    ).toBeGreaterThanOrEqual(10.99);
+    expect(game.snapshot.health).toBeLessThan(100);
   });
   it("provides live heading independently of the throttled HUD snapshot", () => {
     const game = simulation();

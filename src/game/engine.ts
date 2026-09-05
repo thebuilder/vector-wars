@@ -1,3 +1,5 @@
+import { ConvoyRoute } from "./convoys";
+import { createTransport } from "./transport";
 import { EncounterDirector } from "./encounters";
 import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
@@ -39,7 +41,7 @@ import { createBreaches, advanceBreaches } from "./mission";
 import { CombatEffects } from "./effects";
 
 type Enemy = {
-  kind: "relay" | "boss" | "drone";
+  kind: "relay" | "boss" | "drone" | "transport";
   object: THREE.Group;
   hp: number;
   maxHp: number;
@@ -47,6 +49,9 @@ type Enemy = {
   cooldown: number;
   home: THREE.Vector3;
   phase: number;
+  routeDistance?: number;
+  escort?: Enemy;
+  announced?: boolean;
   velocity?: THREE.Vector3;
   arrival?: number;
   deathAge?: number;
@@ -69,7 +74,12 @@ type Particle = {
   life: number;
   scale: number;
 };
-type Pickup = { object: THREE.Group; active: boolean; cooldown: number };
+type Pickup = {
+  object: THREE.Group;
+  active: boolean;
+  cooldown: number;
+  salvage?: boolean;
+};
 const UP = new THREE.Vector3(0, 1, 0);
 const KEY_CODES = new Set([
   "KeyW",
@@ -99,6 +109,7 @@ export class GameEngine {
   private scene = new THREE.Scene();
   private layout: WorldLayout = WORLDS[0];
   private environment?: THREE.Group;
+  private convoyRoute = new ConvoyRoute(this.layout);
   private effects = new CombatEffects(this.scene, (x, z) =>
     this.terrainHeight(x, z),
   );
@@ -236,6 +247,7 @@ export class GameEngine {
       this.layout = WORLDS[level];
       this.environment = createWorld(this.scene, this.layout);
     }
+    this.convoyRoute = new ConvoyRoute(this.layout);
     this.encounterDirector = new EncounterDirector(this.layout.encounters);
     this.sectorStartScore = this.snapshot.score;
     this.effects.clear();
@@ -319,6 +331,7 @@ export class GameEngine {
       const home = this.enemies[i % 3].home.clone();
       this.spawnDrone(home, i * 2.4, false);
     }
+    for (const fraction of [0.12, 0.6]) this.spawnConvoy(fraction);
     for (const [x, z] of this.layout.supplies) {
       const object = new THREE.Group();
       const box = new THREE.Mesh(
@@ -384,6 +397,46 @@ export class GameEngine {
       arrival: arriving ? 1.2 : 0,
     });
     if (arriving) this.explode(object.position, 0x9bddff, 8);
+    return this.enemies[this.enemies.length - 1];
+  }
+  private spawnConvoy(fraction: number) {
+    const routeDistance = this.convoyRoute.length * fraction;
+    const { position, heading } = this.convoyRoute.pose(routeDistance);
+    const object = createTransport(this.texture);
+    object.position.copy(position);
+    object.rotation.y = heading;
+    this.dynamic.add(object);
+    const hp = 260 + this.snapshot.level * 60;
+    const transport: Enemy = {
+      kind: "transport",
+      object,
+      hp,
+      maxHp: hp,
+      radius: 8,
+      cooldown: 3,
+      home: position.clone(),
+      phase: fraction,
+      routeDistance,
+      velocity: new THREE.Vector3(),
+    };
+    this.enemies.push(transport);
+    for (let i = 0; i < 2; i++)
+      this.spawnDrone(position, i * Math.PI, false).escort = transport;
+  }
+  private dropSalvage(position: THREE.Vector3) {
+    const object = new THREE.Group();
+    const crate = new THREE.Mesh(
+      new THREE.OctahedronGeometry(2.8),
+      new THREE.MeshBasicMaterial({ color: 0x9bddff, wireframe: true }),
+    );
+    object.add(crate, glow(0x9bddff, 10, this.texture));
+    object.position.set(
+      position.x,
+      this.terrainHeight(position.x, position.z) + 3,
+      position.z,
+    );
+    this.dynamic.add(object);
+    this.pickups.push({ object, active: true, cooldown: 0, salvage: true });
   }
   private updateEncounters(dt: number, player: THREE.Vector3) {
     const nearby = this.enemies.filter(
@@ -826,7 +879,42 @@ export class GameEngine {
       enemy.cooldown -= dt;
       const p = enemy.object.position;
       const distance = p.distanceTo(player);
+      if (enemy.kind === "transport") {
+        const speed = 25 + this.snapshot.level * 3;
+        enemy.routeDistance =
+          (enemy.routeDistance! + speed * dt) % this.convoyRoute.length;
+        const pose = this.convoyRoute.pose(enemy.routeDistance);
+        p.x = pose.position.x;
+        p.z = pose.position.z;
+        p.y += (pose.position.y - p.y) * (1 - Math.exp(-5 * dt));
+        enemy.object.rotation.y = pose.heading;
+        enemy.velocity!.copy(
+          this.convoyRoute.velocity(enemy.routeDistance, speed),
+        );
+        const body = {
+          x: p.x,
+          y: p.y,
+          z: p.z,
+          vx: enemy.velocity!.x,
+          vz: enemy.velocity!.z,
+        };
+        const contact = separateVehicles(this.player, body, 11);
+        // The heavy transport stays on its route; transfer its separation to the craft.
+        this.player.x -= body.x - p.x;
+        this.player.z -= body.z - p.z;
+        if (contact > 8) this.damagePlayer(Math.min(22, contact * 0.3), p);
+        if (!enemy.announced && distance < 240) {
+          enemy.announced = true;
+          this.message(
+            "SUPPLY CONVOY · DESTROY TRANSPORT, RECOVER ITS CARGO",
+            4,
+          );
+          this.audio.effect("alarm");
+        }
+      }
       if (enemy.kind === "drone") {
+        if (enemy.escort?.hp && enemy.escort.hp > 0)
+          enemy.home.copy(enemy.escort.object.position);
         const engaged = distance < 165 && enemy.home.distanceTo(player) < 240;
         const a = this.time * 0.42 + enemy.phase;
         const center = engaged ? player : enemy.home;
@@ -847,7 +935,7 @@ export class GameEngine {
           .multiplyScalar(
             Math.min(
               remaining * 2,
-              engaged ? 35 + this.snapshot.level * 3 : 15,
+              engaged || enemy.escort?.hp ? 35 + this.snapshot.level * 3 : 15,
             ),
           );
         velocity.lerp(desired, 1 - Math.exp(-2.4 * dt));
@@ -909,7 +997,7 @@ export class GameEngine {
           (enemy.kind === "boss" ? 1.6 : enemy.kind === "relay" ? 3 : 2.3) -
           this.snapshot.level * 0.2;
       }
-      if (enemy.kind !== "drone") {
+      if (enemy.kind === "relay" || enemy.kind === "boss") {
         const radius = enemy.kind === "relay" ? 8 : 29;
         const dx = this.player.x - p.x,
           dz = this.player.z - p.z,
@@ -1059,13 +1147,21 @@ export class GameEngine {
     if (enemy.hp > 0) return;
     enemy.deathAge = 0;
     this.snapshot.score +=
-      enemy.kind === "drone" ? 150 : enemy.kind === "relay" ? 1000 : 5000;
+      enemy.kind === "drone"
+        ? 150
+        : enemy.kind === "transport"
+          ? 750
+          : enemy.kind === "relay"
+            ? 1000
+            : 5000;
     this.snapshot.killText =
       enemy.kind === "drone"
         ? "INTERCEPTOR DESTROYED +150"
-        : enemy.kind === "relay"
-          ? "RELAY DESTROYED +1000"
-          : "REACTOR CRITICAL +5000";
+        : enemy.kind === "transport"
+          ? "TRANSPORT DISABLED +750"
+          : enemy.kind === "relay"
+            ? "RELAY DESTROYED +1000"
+            : "REACTOR CRITICAL +5000";
     this.killUntil = this.time + 2.5;
     this.audio.effect("explosion");
     this.shake = enemy.kind === "drone" ? 0.25 : 0.65;
@@ -1075,6 +1171,13 @@ export class GameEngine {
       enemy.kind === "drone" ? 24 : 60,
     );
     this.effects.burst(this.aimPoint(enemy), enemy.kind === "drone" ? 1 : 3);
+    if (enemy.kind === "transport") {
+      this.dropSalvage(enemy.object.position);
+      this.message(
+        "CARGO RELEASED · COLLECT THE BLUE CACHE FOR REPAIRS + AMMO",
+        5,
+      );
+    }
     if (enemy.kind === "relay") {
       this.snapshot.relays++;
       this.snapshot.health = Math.min(100, this.snapshot.health + 15);
@@ -1295,7 +1398,7 @@ export class GameEngine {
     for (const pickup of this.pickups) {
       pickup.object.rotation.y += dt;
       pickup.cooldown -= dt;
-      if (!pickup.active && pickup.cooldown <= 0) {
+      if (!pickup.active && !pickup.salvage && pickup.cooldown <= 0) {
         pickup.active = true;
         pickup.object.visible = true;
       }
@@ -1308,7 +1411,13 @@ export class GameEngine {
         pickup.object.visible = false;
         pickup.cooldown = 25;
         this.audio.effect("pickup");
-        this.message("REPAIRED +35 / AMMO RESUPPLIED", 3);
+        if (pickup.salvage) this.snapshot.score += 500;
+        this.message(
+          pickup.salvage
+            ? "CARGO RECOVERED +500 · HULL +35 / AMMO / BOOST"
+            : "REPAIRED +35 / AMMO RESUPPLIED",
+          3,
+        );
       }
     }
   }
@@ -1351,9 +1460,9 @@ export class GameEngine {
           0,
           -Math.cos(p.heading),
         );
-      const desired = new THREE.Vector3(p.x, p.y + 7, p.z).addScaledVector(
+      const desired = new THREE.Vector3(p.x, p.y + 4.6, p.z).addScaledVector(
         forward,
-        -18 - speed * 0.045,
+        -12.5 - Math.min(1.5, speed * 0.018),
       );
       desired.y = Math.max(
         desired.y,
@@ -1377,7 +1486,7 @@ export class GameEngine {
       }
       this.camera.fov = THREE.MathUtils.lerp(
         this.camera.fov,
-        62 + Math.min(12, speed * 0.09),
+        60 + Math.min(7, speed * 0.055),
         1 - Math.exp(-3 * dt),
       );
       this.camera.updateProjectionMatrix();
@@ -1402,6 +1511,19 @@ export class GameEngine {
     s.enemies = this.enemies.filter(
       (e) => e.kind === "drone" && e.hp > 0,
     ).length;
+    const convoys = this.enemies.filter(
+      (e) => e.kind === "transport" && e.hp > 0,
+    );
+    s.convoys = convoys.length;
+    s.convoyDistance = convoys.length
+      ? Math.round(
+          Math.min(
+            ...convoys.map((e) =>
+              Math.hypot(e.object.position.x - p.x, e.object.position.z - p.z),
+            ),
+          ),
+        )
+      : 0;
     const boss = this.enemies.find((e) => e.kind === "boss");
     s.bossHealth = boss?.hp ?? 0;
     s.bossShielded = s.relays < 3;
@@ -1415,7 +1537,7 @@ export class GameEngine {
       s.blips.push({
         x: p.object.position.x,
         z: p.object.position.z,
-        kind: "repair",
+        kind: p.salvage ? "cargo" : "repair",
         alive: p.active,
       }),
     );
@@ -1471,7 +1593,9 @@ export class GameEngine {
         ? LEVELS[s.level].boss
         : this.target.kind === "relay"
           ? "SHIELD RELAY"
-          : "INTERCEPTOR"
+          : this.target.kind === "transport"
+            ? "ARMORED TRANSPORT"
+            : "INTERCEPTOR"
       : "";
     s.targetDistance = this.target
       ? Math.round(

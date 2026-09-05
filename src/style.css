@@ -2100,3 +2100,278 @@ h1 > span:first-of-type {
     padding-left: 7px;
   }
 }
+
+/* During flight, show the next decision and only the resources needed to make it. */
+.is-game .topbar {
+  height: 60px;
+  border-bottom: 0;
+  background: linear-gradient(#03070bb0, transparent);
+}
+.is-game .brand {
+  font-size: 14px;
+}
+.is-game .brand svg {
+  width: 24px;
+  height: 24px;
+}
+.is-game .brand small,
+.is-game .topbar-center,
+.is-game .sector-strip,
+.is-game .system-footer,
+.is-game .controls-button {
+  display: none;
+}
+.is-game .world-vignette {
+  opacity: 0.4;
+}
+.is-game .scanlines {
+  opacity: 0.08;
+}
+.is-game .heading-tape {
+  top: 66px;
+  width: 250px;
+  opacity: 0.85;
+}
+.is-game .heading-tape strong {
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.is-game .navigation-cue {
+  top: 139px;
+  gap: 14px;
+  padding: 12px 18px;
+  min-width: 270px;
+  max-width: 430px;
+  background: #061018c9;
+  border-left: 2px solid #ffbc57;
+}
+.is-game .navigation-cue small {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: #b4bfb9;
+  margin-bottom: 7px;
+}
+.is-game .navigation-cue strong {
+  font-size: 15px;
+  color: #ffe0a7;
+}
+.is-game .navigation-cue strong b {
+  font-size: 11px;
+  color: #d1dcd5;
+  margin-left: 14px;
+}
+.is-game .navigation-arrow {
+  font-size: 28px;
+}
+.is-game .breach-clock {
+  font-size: 29px;
+}
+.is-game .breach-clock small {
+  font-size: 8px;
+}
+.is-game .boss-health {
+  top: 234px;
+  width: 290px;
+}
+.is-game .crosshair {
+  opacity: 0.4;
+  width: 32px;
+  height: 24px;
+}
+.is-game .crosshair.locked {
+  opacity: 0.9;
+  width: 46px;
+  height: 32px;
+}
+.is-game .target-info > span {
+  display: none;
+}
+.is-game .target-info > strong {
+  font-size: 10px;
+}
+.is-game .transmission {
+  left: 50%;
+  bottom: 115px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 440px;
+  font-size: 10px;
+  line-height: 1.6;
+  text-align: center;
+  background: #061018d9;
+  border: 0;
+  padding: 10px 16px;
+}
+.drive-vitals {
+  position: absolute;
+  left: 32px;
+  bottom: 32px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 16px 20px;
+  background: #061018cc;
+  border-left: 2px solid #86fadd;
+  pointer-events: none;
+}
+.drive-speed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 95px;
+}
+.drive-speed > strong {
+  font: 500 39px var(--afterglow-font-sans);
+  line-height: 1;
+  color: #e1fff1;
+  font-variant-numeric: tabular-nums;
+}
+.drive-speed > span {
+  font-size: 9px;
+  color: #9baea7;
+}
+.drive-speed small {
+  display: block;
+  font-size: 7px;
+  color: #ffca7d;
+  margin-top: 6px;
+}
+.drive-meters {
+  width: 150px;
+}
+.drive-meters > div:not([data-slot]) {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: #b9cac3;
+  margin-bottom: 5px;
+  letter-spacing: 1px;
+}
+.drive-meters [data-slot="progress"] {
+  margin-bottom: 10px;
+}
+.drive-meters [data-slot="progress"]:last-child {
+  margin-bottom: 0;
+}
+.drive-meters [data-slot="progress-track"] {
+  height: 5px;
+}
+.drive-weapons {
+  position: absolute;
+  right: 32px;
+  bottom: 32px;
+  width: 224px;
+  padding: 14px 16px;
+  background: #061018cc;
+}
+.equipped-weapon {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 10px;
+  color: #c5ddd2;
+  letter-spacing: 0.5px;
+}
+.equipped-weapon strong {
+  font: 500 23px var(--afterglow-font-sans);
+  color: #f0fff4;
+}
+.drive-weapons > div:last-child {
+  display: flex;
+  gap: 7px;
+}
+.drive-weapons button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  flex: 1;
+  min-height: 38px;
+  border: 1px solid #86fadd30;
+  background: transparent;
+  color: #82978d;
+  cursor: pointer;
+}
+.drive-weapons button[aria-pressed="true"] {
+  color: #c7ffe8;
+  background: #86fadd15;
+  border-color: #86fadd;
+}
+.drive-weapons kbd {
+  font-size: 10px;
+}
+.map-trigger {
+  position: absolute;
+  right: 34px;
+  top: 82px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 6px 10px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #c7dfd5;
+  background: #061018b0;
+  border: 1px solid #86fadd30;
+  cursor: pointer;
+}
+.map-trigger kbd {
+  font-size: 9px;
+  padding: 2px 4px;
+  border: 1px solid #86fadd50;
+}
+.expanded-map .radar svg {
+  width: 100%;
+  height: 340px;
+}
+.expanded-map .radar-heading,
+.expanded-map .radar-legend {
+  display: none;
+}
+.pause-stats {
+  display: flex;
+  justify-content: space-between;
+  border-block: 1px solid #86fadd30;
+  padding: 16px 0;
+  margin: 20px 0;
+  color: #a3b7ad;
+  font-size: 11px;
+}
+.pause-stats strong {
+  display: block;
+  color: #edfff4;
+  margin-top: 5px;
+}
+@media (max-width: 900px) {
+  .drive-vitals {
+    left: 18px;
+    bottom: 22px;
+    padding: 12px;
+    gap: 12px;
+  }
+  .drive-meters {
+    width: 110px;
+  }
+  .drive-speed > strong {
+    font-size: 30px;
+  }
+  .drive-weapons {
+    right: 18px;
+    bottom: 22px;
+    width: 200px;
+    padding: 12px;
+  }
+  .is-game .navigation-cue {
+    min-width: 240px;
+  }
+}
+@media (max-width: 600px) {
+  .drive-vitals,
+  .drive-weapons,
+  .map-trigger {
+    display: none;
+  }
+}

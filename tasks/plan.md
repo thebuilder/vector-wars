@@ -9,3 +9,7 @@ The user requests real collisions, coherent scenery, combat feedback, delayed vi
 5. Regression and browser verification. Test geometry contacts, breach sequencing, combat shield gating and delayed victory. Inspect actual desktop gameplay and documented limits.
 
 No dependency migration or publication is needed. Existing Afterglow components remain the UI foundation.
+
+## Deployment and sector follow-up
+
+Keep the vehicle at its actual driving pose and ease the camera into chase position on deployment. Add announced, paced patrol arrivals along travel routes. Give each sector its own terrain, road network, outposts, palette, and landmarks. Reduce the driving HUD to immediate controls and next action, move navigation details into a keyboard-accessible map, and read the compass heading each display frame. Verify all nine breach routes, each road layout, real-engine campaign progression, and desktop presentation.

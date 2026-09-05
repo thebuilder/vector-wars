@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { DrivingHUD } from "./components/DrivingHUD";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowRight,
@@ -20,7 +21,6 @@ import {
   Volume2,
   VolumeX,
   X,
-  Zap,
 } from "lucide-react";
 import { GameEngine } from "./game/engine";
 import {
@@ -48,6 +48,7 @@ const controls = [
   ["1 2 3", "Select weapon"],
   ["Q / E", "Cycle weapons"],
   ["R", "Recover vehicle"],
+  ["M", "Sector map"],
   ["ESC", "Pause / resume"],
 ];
 function loadSettings(): Settings {
@@ -125,8 +126,10 @@ function WeaponIcon({ weapon }: { weapon: Weapon }) {
 export default function App() {
   const host = useRef<HTMLDivElement>(null),
     engine = useRef<GameEngine | null>(null);
+  const readHeading = useCallback(() => engine.current?.getHeading() ?? 0, []);
   const [state, setState] = useState<Snapshot>(initialSnapshot);
   const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [mapOpen, setMapOpen] = useState(false);
   const [dialog, setDialog] = useState<"controls" | "settings" | null>(null);
   const [error, setError] = useState("");
   const [engineReady, setEngineReady] = useState(false);
@@ -170,6 +173,31 @@ export default function App() {
     if (active) engine.current?.pause();
     setDialog(name);
   };
+  const openMap = useCallback(() => {
+    engine.current?.pause();
+    setMapOpen(true);
+  }, []);
+  const closeMap = () => {
+    setMapOpen(false);
+    engine.current?.resume();
+  };
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (
+        event.code === "KeyM" &&
+        !(
+          event.target instanceof Element &&
+          event.target.closest("input,textarea,select,dialog")
+        ) &&
+        !menu
+      ) {
+        event.preventDefault();
+        openMap();
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [menu, openMap]);
   const toggleFullscreen = async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
@@ -340,136 +368,74 @@ export default function App() {
           </div>
         </section>
       ) : (
-        <section className="telemetry" aria-label="Vehicle telemetry">
-          <div className="telemetry-title">
-            <span>
-              <i className="led" />
-              VXR–01 // ONLINE
-            </span>
-            <span>{formatTime(state.elapsed)}</span>
-          </div>
-          <div className="speed">
-            <span>{state.speed.toString().padStart(3, "0")}</span>
-            <div>
-              KM/H
-              <small>{state.altitude > 2 ? "AIRBORNE" : "GROUND SPEED"}</small>
-            </div>
-          </div>
-          <div className="speed-scale" aria-hidden="true">
-            {Array.from({ length: 30 }, (_, i) => (
-              <i key={i} className={i < state.speed / 12 ? "lit" : ""} />
-            ))}
-          </div>
-          <div className="meter-label">
-            <span>
-              <Shield size={12} />
-              HULL INTEGRITY
-            </span>
-            <strong className={state.health < 30 ? "text-signal" : ""}>
-              {Math.ceil(state.health)}
-              <small> / 100</small>
-            </strong>
-          </div>
-          <Progress
-            value={state.health}
-            cells={22}
-            aria-label="Hull integrity"
-            className={state.health < 30 ? "hull-critical" : ""}
-          />
-          <div className="meter-label boost-label">
-            <span>
-              <Zap size={12} />
-              BOOST CAPACITOR
-            </span>
-            <strong>
-              {Math.round(state.boost)}
-              <small>%</small>
-            </strong>
-          </div>
-          <Progress
-            value={state.boost}
-            cells={22}
-            aria-label="Boost capacitor"
-            className="boost-progress"
-          />
-          <div className="score-line">
-            <span>SCORE</span>
-            <strong>{state.score.toString().padStart(6, "0")}</strong>
-          </div>
-        </section>
+        <DrivingHUD
+          state={state}
+          onWeapon={(weapon) => engine.current?.setWeapon(weapon)}
+          onMap={openMap}
+        />
       )}
 
-      <aside className="mission-panel" aria-label="Mission objectives">
-        <div className="panel-topline">
-          <span>
-            <Target size={13} />
-            MISSION BRIEF
-          </span>
-          <Badge variant="signal">
-            {menu
-              ? "AWAITING PILOT"
-              : state.phase === "won"
-                ? "COMPLETE"
-                : "LIVE"}
-          </Badge>
-        </div>
-        <div className="mission-number">
-          0{state.level + 1}
-          <span>/ 03</span>
-          <div className="mission-number-lines" aria-hidden="true" />
-        </div>
-        <h2>{level.name}</h2>
-        <p className="mission-description">{level.description}</p>
-        <div className="objective-row">
-          <span
-            className={
-              state.relays === 3 ? "objective-done" : "objective-square"
-            }
-          >
-            {state.relays === 3 ? "✓" : "01"}
-          </span>
-          <span>Breach & destroy outposts</span>
-          <b>{state.relays}/3</b>
-        </div>
-        <div className="objective-row">
-          <span
-            className={
-              state.enemies === 0 ? "objective-done" : "objective-square"
-            }
-          >
-            {state.enemies === 0 ? "✓" : "02"}
-          </span>
-          <span>Escorts (bonus)</span>
-          <b>
-            {LEVELS[state.level].drones - state.enemies}/
-            {LEVELS[state.level].drones}
-          </b>
-        </div>
-        <div className="objective-row">
-          <span
-            className={
-              state.bossHealth === 0 ? "objective-done" : "objective-square"
-            }
-          >
-            {state.bossHealth === 0 ? "✓" : "03"}
-          </span>
-          <span>Destroy {level.boss.replace("THE ", "").toLowerCase()}</span>
-          <Shield
-            size={12}
-            className={state.bossShielded ? "shield-icon" : ""}
-          />
-        </div>
-        {!menu && (
-          <div className="breach-summary">
-            {state.breached}/3 SHIELDS BREACHED <span>2.1 KM SECTOR</span>
+      {menu && (
+        <aside className="mission-panel" aria-label="Mission objectives">
+          <div className="panel-topline">
+            <span>
+              <Target size={13} />
+              MISSION BRIEF
+            </span>
+            <Badge variant="signal">AWAITING PILOT</Badge>
           </div>
-        )}
-        <div className="mission-footer">
-          <span className="signal-dot" />
-          {state.bossShielded ? "CORE SHIELDED" : "CORE EXPOSED"}
-          <span>{state.bossShielded ? "RELAYS ACTIVE" : "ENGAGE AT WILL"}</span>
-        </div>
-      </aside>
+          <div className="mission-number">
+            0{state.level + 1}
+            <span>/ 03</span>
+            <div className="mission-number-lines" aria-hidden="true" />
+          </div>
+          <h2>{level.name}</h2>
+          <p className="mission-description">{level.description}</p>
+          <div className="objective-row">
+            <span
+              className={
+                state.relays === 3 ? "objective-done" : "objective-square"
+              }
+            >
+              {state.relays === 3 ? "✓" : "01"}
+            </span>
+            <span>Breach & destroy outposts</span>
+            <b>{state.relays}/3</b>
+          </div>
+          <div className="objective-row">
+            <span
+              className={
+                state.enemies === 0 ? "objective-done" : "objective-square"
+              }
+            >
+              {state.enemies === 0 ? "✓" : "02"}
+            </span>
+            <span>Patrols in sector</span>
+            <b>{state.enemies}</b>
+          </div>
+          <div className="objective-row">
+            <span
+              className={
+                state.bossHealth === 0 ? "objective-done" : "objective-square"
+              }
+            >
+              {state.bossHealth === 0 ? "✓" : "03"}
+            </span>
+            <span>Destroy {level.boss.replace("THE ", "").toLowerCase()}</span>
+            <Shield
+              size={12}
+              className={state.bossShielded ? "shield-icon" : ""}
+            />
+          </div>
+          <div className="mission-footer">
+            <span className="signal-dot" />
+            {state.bossShielded ? "CORE SHIELDED" : "CORE EXPOSED"}
+            <span>
+              {state.bossShielded ? "RELAYS ACTIVE" : "ENGAGE AT WILL"}
+            </span>
+          </div>
+        </aside>
+      )}
 
       {menu && (
         <div className="vehicle-label">
@@ -518,7 +484,7 @@ export default function App() {
               <span>WEAPONS FREE</span>
             )}
           </div>
-          <Compass heading={state.heading} />
+          <Compass readHeading={readHeading} />
           <div
             className={`navigation-cue ${state.breachTime > 0 ? "breaching" : ""}`}
           >
@@ -531,9 +497,11 @@ export default function App() {
               ↑
             </span>
             <div>
-              <small>{state.waypoint.detail}</small>
+              <small>
+                {state.waypoint.name} · {state.relays}/3 OUTPOSTS
+              </small>
               <strong>
-                {state.waypoint.name} <b>{state.waypoint.distance} M</b>
+                {state.waypoint.detail} <b>{state.waypoint.distance} M</b>
               </strong>
             </div>
             {state.breachTime > 0 && (
@@ -584,10 +552,12 @@ export default function App() {
               </strong>
             </div>
           )}
-          <div className="transmission" role="status">
-            <Radio size={14} />
-            <span>{state.message}</span>
-          </div>
+          {state.message && (
+            <div className="transmission" role="status">
+              <Radio size={14} />
+              <span>{state.message}</span>
+            </div>
+          )}
           {state.relays === 3 && state.bossHealth > 0 && (
             <div className="boss-health">
               <div>
@@ -604,88 +574,82 @@ export default function App() {
           )}
         </>
       )}
-      <div className="radar-position">
-        <Radar state={state} />
-      </div>
+      {menu && (
+        <div className="radar-position">
+          <Radar state={state} />
+        </div>
+      )}
 
-      <footer className="bottom-deck">
-        <div className="loadout-label">
-          <span>LOADOUT</span>
-          <strong>
-            MAKE SOME
-            <br />
-            STATIC.
-          </strong>
-          <span className="loadout-key">[ 1 – 3 ] TO SWITCH</span>
-        </div>
-        <div className="weapon-rack" aria-label="Select weapon">
-          {WEAPONS.map((w) => (
-            <button
-              key={w.id}
-              className={`weapon-card ${state.weapon === w.id ? "selected" : ""}`}
-              aria-pressed={state.weapon === w.id}
-              onClick={() => engine.current?.setWeapon(w.id)}
-            >
-              <div className="weapon-top">
-                <span className="weapon-key">{w.key}</span>
-                <span>{state.weapon === w.id ? "EQUIPPED" : w.short}</span>
-                <i />
-              </div>
-              <WeaponIcon weapon={w.id} />
-              <div className="weapon-name">{w.name}</div>
-              <div className="weapon-bottom">
-                <span>
-                  {w.id === "laser"
-                    ? "ENERGY / UNLIMITED"
-                    : w.id === "missile"
-                      ? "HOMING / EXPLOSIVE"
-                      : "PROXIMITY / EXPLOSIVE"}
-                </span>
-                <strong>
-                  {w.id === "laser"
-                    ? "∞"
-                    : String(
-                        w.id === "missile" ? state.missiles : state.mines,
-                      ).padStart(2, "0")}
-                </strong>
-              </div>
-            </button>
-          ))}
-        </div>
-        <div className="deck-status">
-          <div>
-            <span className="led" /> {menu ? "VEHICLE READY" : "SYSTEMS ONLINE"}
+      {menu && (
+        <footer className="bottom-deck">
+          <div className="loadout-label">
+            <span>LOADOUT</span>
+            <strong>
+              MAKE SOME
+              <br />
+              STATIC.
+            </strong>
+            <span className="loadout-key">[ 1 – 3 ] TO SWITCH</span>
           </div>
-          <div className="deck-stat">
-            <Gauge size={14} />
-            <span>
-              {menu
-                ? "TWIN ION DRIVE"
-                : state.altitude > 2
-                  ? `ALT ${Math.round(state.altitude)} M`
-                  : "HOVER STABILIZED"}
-            </span>
-          </div>
-          <div className="deck-stat">
-            <Shield size={14} />
-            <span>
-              {menu
-                ? "HULL INTEGRITY 100%"
-                : `BEST ${state.best.toString().padStart(6, "0")}`}
-            </span>
-          </div>
-          <div className="deck-bars" aria-hidden="true">
-            {Array.from({ length: 26 }, (_, i) => (
-              <i
-                key={i}
-                style={{
-                  height: `${8 + Math.sin(i * 2) * 5 + Math.cos(i * 4) * 4}px`,
-                }}
-              />
+          <div className="weapon-rack" aria-label="Select weapon">
+            {WEAPONS.map((w) => (
+              <button
+                key={w.id}
+                className={`weapon-card ${state.weapon === w.id ? "selected" : ""}`}
+                aria-pressed={state.weapon === w.id}
+                onClick={() => engine.current?.setWeapon(w.id)}
+              >
+                <div className="weapon-top">
+                  <span className="weapon-key">{w.key}</span>
+                  <span>{state.weapon === w.id ? "EQUIPPED" : w.short}</span>
+                  <i />
+                </div>
+                <WeaponIcon weapon={w.id} />
+                <div className="weapon-name">{w.name}</div>
+                <div className="weapon-bottom">
+                  <span>
+                    {w.id === "laser"
+                      ? "ENERGY / UNLIMITED"
+                      : w.id === "missile"
+                        ? "HOMING / EXPLOSIVE"
+                        : "PROXIMITY / EXPLOSIVE"}
+                  </span>
+                  <strong>
+                    {w.id === "laser"
+                      ? "∞"
+                      : String(
+                          w.id === "missile" ? state.missiles : state.mines,
+                        ).padStart(2, "0")}
+                  </strong>
+                </div>
+              </button>
             ))}
           </div>
-        </div>
-      </footer>
+          <div className="deck-status">
+            <div>
+              <span className="led" /> VEHICLE READY
+            </div>
+            <div className="deck-stat">
+              <Gauge size={14} />
+              <span>TWIN ION DRIVE</span>
+            </div>
+            <div className="deck-stat">
+              <Shield size={14} />
+              <span>HULL INTEGRITY 100%</span>
+            </div>
+            <div className="deck-bars" aria-hidden="true">
+              {Array.from({ length: 26 }, (_, i) => (
+                <i
+                  key={i}
+                  style={{
+                    height: `${8 + Math.sin(i * 2) * 5 + Math.cos(i * 4) * 4}px`,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </footer>
+      )}
       <div className="system-footer">
         <span>
           VECTOR WARS <span className="footer-dim">/</span>{" "}
@@ -709,13 +673,37 @@ export default function App() {
         </span>
       </div>
 
-      {state.phase === "paused" && !dialog && (
+      {mapOpen && (
+        <GameDialog title={level.name} eyebrow="SECTOR MAP" onClose={closeMap}>
+          <div className="expanded-map">
+            <Radar state={state} />
+          </div>
+          <p>Amber: next gate / reactor · Pink: hostiles · Mint: supplies</p>
+          <Button variant="primary" onClick={closeMap}>
+            BACK TO DRIVING
+          </Button>
+        </GameDialog>
+      )}
+      {state.phase === "paused" && !dialog && !mapOpen && (
         <GameDialog
           title="Signal on hold."
           eyebrow="SYSTEM // PAUSED"
           onClose={() => engine.current?.resume()}
         >
-          <p>The wasteland can wait.</p>
+          <p>
+            {level.name} · {state.relays}/3 outposts destroyed
+          </p>
+          <div className="pause-stats">
+            <span>
+              Score <strong>{state.score}</strong>
+            </span>
+            <span>
+              Time <strong>{formatTime(state.elapsed)}</strong>
+            </span>
+            <span>
+              Patrols <strong>{state.enemies}</strong>
+            </span>
+          </div>
           <div className="dialog-actions">
             <Button
               variant="primary"

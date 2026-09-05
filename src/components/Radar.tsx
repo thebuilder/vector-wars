@@ -1,6 +1,9 @@
-import { WORLD_CENTER_Z, WORLD_RADIUS, createRoadCurve } from "../game/layout";
+import { WORLDS, worldRoadCurve } from "../game/worlds";
+import { WORLD_CENTER_Z, WORLD_RADIUS } from "../game/layout";
 import type { Snapshot } from "../game/types";
-const roadPath = createRoadCurve().getSpacedPoints(400);
+const roadPaths = WORLDS.map((world) =>
+  worldRoadCurve(world).getSpacedPoints(400),
+);
 export function Radar({ state }: { state: Snapshot }) {
   const scale = 76 / WORLD_RADIUS;
   return (
@@ -54,7 +57,7 @@ export function Radar({ state }: { state: Snapshot }) {
         <path d="M110 10v168M26 94h168" stroke="#86fadd" strokeOpacity=".13" />
         <path
           d={
-            roadPath
+            roadPaths[state.level]
               .map(
                 ({ x, z }, i) =>
                   `${i ? "L" : "M"}${110 + x * scale} ${94 + (z - WORLD_CENTER_Z) * scale}`,

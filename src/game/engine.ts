@@ -1,3 +1,4 @@
+import { EncounterDirector } from "./encounters";
 import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
@@ -33,7 +34,7 @@ import {
   type Phase,
 } from "./types";
 
-import { OUTPOSTS, BOSS_POSITION, SUPPLIES } from "./layout";
+import { WORLDS, type WorldLayout } from "./worlds";
 import { createBreaches, advanceBreaches } from "./mission";
 import { CombatEffects } from "./effects";
 
@@ -47,6 +48,7 @@ type Enemy = {
   home: THREE.Vector3;
   phase: number;
   velocity?: THREE.Vector3;
+  arrival?: number;
   deathAge?: number;
   hitUntil?: number;
 };
@@ -95,7 +97,18 @@ const KEY_CODES = new Set([
 
 export class GameEngine {
   private scene = new THREE.Scene();
-  private effects = new CombatEffects(this.scene);
+  private layout: WorldLayout = WORLDS[0];
+  private environment?: THREE.Group;
+  private effects = new CombatEffects(this.scene, (x, z) =>
+    this.terrainHeight(x, z),
+  );
+  private encounterDirector = new EncounterDirector(WORLDS[0].encounters);
+  private deployment = 1.6;
+  private deploymentPosition = new THREE.Vector3();
+  private deploymentLook = new THREE.Vector3();
+  private terrainHeight(x: number, z: number) {
+    return terrainHeight(x, z, this.layout);
+  }
   private breaches = createBreaches();
   private gates: THREE.Group[][] = [];
   private resumePhase: "playing" | "aftermath" = "playing";
@@ -115,7 +128,7 @@ export class GameEngine {
   private particles: Particle[] = [];
   private pickups: Pickup[] = [];
   private bossVisual?: ReturnType<typeof createBoss>;
-  private player: VehicleState = createVehicle();
+  private player: VehicleState = createVehicle(this.layout);
   private keys = new Set<string>();
   private audio = new GameAudio();
   private snapshot: Snapshot = { ...initialSnapshot };
@@ -166,7 +179,7 @@ export class GameEngine {
     );
     this.renderer.domElement.setAttribute("role", "img");
     host.appendChild(this.renderer.domElement);
-    createWorld(this.scene);
+
     this.scene.add(this.ship.root, this.dynamic);
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -215,6 +228,15 @@ export class GameEngine {
     this.resize();
   }
   private loadLevel(level: number) {
+    if (!this.environment || this.layout.id !== level) {
+      if (this.environment) {
+        this.scene.remove(this.environment);
+        disposeObject(this.environment);
+      }
+      this.layout = WORLDS[level];
+      this.environment = createWorld(this.scene, this.layout);
+    }
+    this.encounterDirector = new EncounterDirector(this.layout.encounters);
     this.sectorStartScore = this.snapshot.score;
     this.effects.clear();
     this.breaches = createBreaches();
@@ -240,7 +262,7 @@ export class GameEngine {
     this.dynamic.clear();
     this.enemies = [];
     this.pickups = [];
-    this.player = createVehicle();
+    this.player = createVehicle(this.layout);
     this.fireCooldown = 0;
     this.jumpCooldown = 0;
     this.invulnerable = 2;
@@ -255,11 +277,11 @@ export class GameEngine {
       bossHealth: LEVELS[level].bossHealth,
       enemies: LEVELS[level].drones,
     };
-    this.gates = createBreachGates();
+    this.gates = createBreachGates(this.layout);
     this.gates.flat().forEach((g) => this.dynamic.add(g));
-    OUTPOSTS.forEach(({ x, z }, i) => {
+    this.layout.outposts.forEach(({ x, z }, i) => {
       const object = createRelay(i, this.texture);
-      object.position.set(x, terrainHeight(x, z), z);
+      object.position.set(x, this.terrainHeight(x, z), z);
       this.dynamic.add(object);
       this.enemies.push({
         kind: "relay",
@@ -278,9 +300,9 @@ export class GameEngine {
     );
     this.bossVisual = boss;
     boss.group.position.set(
-      BOSS_POSITION.x,
-      terrainHeight(BOSS_POSITION.x, BOSS_POSITION.z) + 22,
-      BOSS_POSITION.z,
+      this.layout.boss.x,
+      this.terrainHeight(this.layout.boss.x, this.layout.boss.z) + 22,
+      this.layout.boss.z,
     );
     this.dynamic.add(boss.group);
     this.enemies.push({
@@ -295,26 +317,9 @@ export class GameEngine {
     });
     for (let i = 0; i < LEVELS[level].drones; i++) {
       const home = this.enemies[i % 3].home.clone();
-      const a = i * 2.4;
-      const object = createDrone(this.texture);
-      object.position.set(
-        home.x + Math.cos(a) * 22,
-        terrainHeight(home.x, home.z) + 4,
-        home.z + Math.sin(a) * 22,
-      );
-      this.dynamic.add(object);
-      this.enemies.push({
-        kind: "drone",
-        object,
-        hp: 45,
-        maxHp: 45,
-        radius: 3.3,
-        cooldown: 2 + i * 0.3,
-        home,
-        phase: a,
-      });
+      this.spawnDrone(home, i * 2.4, false);
     }
-    for (const [x, z] of SUPPLIES) {
+    for (const [x, z] of this.layout.supplies) {
       const object = new THREE.Group();
       const box = new THREE.Mesh(
         new THREE.OctahedronGeometry(2),
@@ -332,31 +337,93 @@ export class GameEngine {
           ),
         );
       object.add(glow(0x86fadd, 8, this.texture));
-      object.position.set(x, terrainHeight(x, z) + 3, z);
+      object.position.set(x, this.terrainHeight(x, z) + 3, z);
       this.dynamic.add(object);
       this.pickups.push({ object, active: true, cooldown: 0 });
     }
     this.updateGates();
     this.ship.root.position.set(this.player.x, this.player.y, this.player.z);
     this.ship.root.rotation.set(0, 0, 0);
-    this.cameraPosition.set(15, 10, 145);
-    this.cameraLook.set(-10, 8, 70);
+    const p = this.player;
+    this.cameraPosition.set(p.x + 9, p.y + 4, p.z + 13);
+    this.cameraLook.set(p.x - 5, p.y + 1, p.z - 3);
+    this.deployment = 1.6;
     this.camera.position.copy(this.cameraPosition);
     this.camera.lookAt(this.cameraLook);
     this.emit();
+  }
+  private spawnDrone(home: THREE.Vector3, angle: number, arriving: boolean) {
+    const object = createDrone(this.texture);
+    object.position.set(
+      home.x + Math.cos(angle) * 35,
+      0,
+      home.z + Math.sin(angle) * 35,
+    );
+    // Patrols arrive beside the route, outside the craft's collision envelope.
+    if (
+      Math.hypot(
+        object.position.x - this.player.x,
+        object.position.z - this.player.z,
+      ) < 32
+    )
+      object.position.x = this.player.x + 45;
+    object.position.y =
+      this.terrainHeight(object.position.x, object.position.z) +
+      4 +
+      (arriving ? 24 : 0);
+    this.dynamic.add(object);
+    this.enemies.push({
+      kind: "drone",
+      object,
+      hp: 45,
+      maxHp: 45,
+      radius: 3.3,
+      cooldown: 2,
+      home: home.clone(),
+      phase: angle,
+      arrival: arriving ? 1.2 : 0,
+    });
+    if (arriving) this.explode(object.position, 0x9bddff, 8);
+  }
+  private updateEncounters(dt: number, player: THREE.Vector3) {
+    const nearby = this.enemies.filter(
+      (e) =>
+        e.kind === "drone" &&
+        e.hp > 0 &&
+        e.object.position.distanceTo(player) < 180,
+    ).length;
+    const event = this.encounterDirector.update(player.x, player.z, nearby, dt);
+    if (!event) return;
+    if (event.kind === "warning") {
+      this.message("PATROL INBOUND · KEEP MOVING", 2.5);
+      this.audio.effect("alarm");
+      return;
+    }
+    const region = this.layout.encounters[event.index],
+      home = new THREE.Vector3(
+        region.x,
+        this.terrainHeight(region.x, region.z),
+        region.z,
+      );
+    for (let i = 0; i < region.count; i++)
+      this.spawnDrone(
+        home,
+        (i * Math.PI * 2) / region.count + event.index,
+        true,
+      );
   }
   start() {
     if (this.snapshot.phase === "paused") {
       this.resume();
       return;
     }
+    this.deployment = 0;
+    this.deploymentPosition.copy(this.cameraPosition);
+    this.deploymentLook.copy(this.cameraLook);
     this.keys.clear();
     this.snapshot.phase = "playing";
     this.audio.start();
-    this.message(
-      "FOLLOW AMBER GATES. BOOST, DRIFT, JUMP TO BREACH EACH OUTPOST.",
-      8,
-    );
+    this.message("WASD DRIVE · SHIFT BOOST · SPACE DRIFT · J FIRE · M MAP", 8);
     this.emit();
   }
   pause() {
@@ -413,6 +480,9 @@ export class GameEngine {
     this.audio.effect("mine");
     this.emit();
   }
+  getHeading() {
+    return this.player.heading;
+  }
   getState(): Readonly<Snapshot> {
     return this.snapshot;
   }
@@ -463,7 +533,7 @@ export class GameEngine {
         );
       }
       if (event.code === "KeyR") {
-        this.player = createVehicle();
+        this.player = createVehicle(this.layout);
         this.invulnerable = 3;
         this.message("VEHICLE RECOVERED", 2);
       }
@@ -570,6 +640,7 @@ export class GameEngine {
         jump,
       },
       dt,
+      this.layout,
     );
     if (jump && !wasAirborne) {
       this.jumpCooldown = 1.1;
@@ -605,8 +676,9 @@ export class GameEngine {
       previousPosition,
       this.player,
       dt,
+      this.layout,
     )) {
-      const name = OUTPOSTS[event.site].name;
+      const name = this.layout.outposts[event.site].name;
       if (event.kind === "breached") {
         this.snapshot.score += 500;
         this.player.boost = 100;
@@ -632,17 +704,12 @@ export class GameEngine {
       this.fireCooldown <= 0
     )
       this.fire(playerPos);
+    this.updateEncounters(dt, playerPos);
     this.updateEnemies(dt, playerPos);
     this.updateShots(dt, playerPos);
     this.updateParticles(dt);
     this.updatePickups(dt, playerPos);
-    if (this.time > this.messageUntil)
-      this.snapshot.message =
-        this.snapshot.relays === 3
-          ? "SHIELD DOWN. FINISH THE " +
-            LEVELS[this.snapshot.level].boss.replace("THE ", "") +
-            "."
-          : "FOLLOW THE AMBER BREACH ROUTE. EXPOSE THE RELAY.";
+    if (this.time > this.messageUntil) this.snapshot.message = "";
   }
   private findTarget(position: THREE.Vector3) {
     const forward = new THREE.Vector3(
@@ -695,7 +762,8 @@ export class GameEngine {
       this.snapshot.mines--;
       const mine = new THREE.Mesh(this.mineGeo, this.missileMaterial);
       mine.position.copy(position).addScaledVector(direction, -3);
-      mine.position.y = terrainHeight(mine.position.x, mine.position.z) + 0.6;
+      mine.position.y =
+        this.terrainHeight(mine.position.x, mine.position.z) + 0.6;
       this.scene.add(mine);
       this.shots.push({
         object: mine,
@@ -747,6 +815,14 @@ export class GameEngine {
   private updateEnemies(dt: number, player: THREE.Vector3) {
     for (const enemy of this.enemies) {
       if (enemy.hp <= 0) continue;
+      if ((enemy.arrival ?? 0) > 0) {
+        enemy.arrival = Math.max(0, enemy.arrival! - dt);
+        enemy.object.position.y =
+          this.terrainHeight(enemy.object.position.x, enemy.object.position.z) +
+          4 +
+          enemy.arrival * 20;
+        continue;
+      }
       enemy.cooldown -= dt;
       const p = enemy.object.position;
       const distance = p.distanceTo(player);
@@ -760,7 +836,9 @@ export class GameEngine {
           center.z + Math.sin(a) * (engaged ? 27 : 36),
         );
         destination.y =
-          terrainHeight(destination.x, destination.z) + 3.4 + Math.sin(a) * 0.6;
+          this.terrainHeight(destination.x, destination.z) +
+          3.4 +
+          Math.sin(a) * 0.6;
         const velocity = (enemy.velocity ??= new THREE.Vector3());
         const desired = destination.sub(p);
         const remaining = desired.length();
@@ -945,7 +1023,7 @@ export class GameEngine {
           }
         }
       }
-      if (!shot.mine && p.y < terrainHeight(p.x, p.z)) shot.ttl = 0;
+      if (!shot.mine && p.y < this.terrainHeight(p.x, p.z)) shot.ttl = 0;
       if (shot.ttl <= 0) {
         this.scene.remove(shot.object);
         this.shots.splice(i, 1);
@@ -965,7 +1043,7 @@ export class GameEngine {
       this.message(
         enemy.kind === "boss"
           ? "CORE SHIELDED. DESTROY THE THREE RELAYS."
-          : `${OUTPOSTS[enemy.phase].name}: RUN THE AMBER GATES TO BREAK THIS SHIELD.`,
+          : `${this.layout.outposts[enemy.phase].name}: RUN THE AMBER GATES TO BREAK THIS SHIELD.`,
         2,
       );
       this.explode(this.aimPoint(enemy), 0x86fadd, 5);
@@ -1005,7 +1083,7 @@ export class GameEngine {
       this.message(
         this.snapshot.relays === 3
           ? "ALL OUTPOSTS SILENCED. REACTOR EXPOSED."
-          : `${OUTPOSTS[enemy.phase].name} CLEARED. REPAIRED AND RESUPPLIED.`,
+          : `${this.layout.outposts[enemy.phase].name} CLEARED. REPAIRED AND RESUPPLIED.`,
         5,
       );
       if (this.bossVisual)
@@ -1128,7 +1206,7 @@ export class GameEngine {
       if (
         enemy.deathAge > 1.5 ||
         enemy.object.position.y <
-          terrainHeight(enemy.object.position.x, enemy.object.position.z)
+          this.terrainHeight(enemy.object.position.x, enemy.object.position.z)
       ) {
         this.effects.burst(
           enemy.object.position,
@@ -1240,14 +1318,9 @@ export class GameEngine {
       playing =
         this.snapshot.phase === "playing" ||
         this.snapshot.phase === "aftermath";
-    this.ship.root.position.set(
-      ready ? 12 : p.x,
-      (ready ? terrainHeight(12, 105) + 2 : p.y) +
-        Math.sin(this.time * 4) * 0.08,
-      ready ? 105 : p.z,
-    );
-    this.ship.root.scale.setScalar(ready ? 2.1 : 1.15);
-    this.ship.root.rotation.y = ready ? -0.38 : p.heading;
+    this.ship.root.position.set(p.x, p.y + Math.sin(this.time * 4) * 0.08, p.z);
+    this.ship.root.scale.setScalar(1.15);
+    this.ship.root.rotation.y = p.heading;
     this.ship.body.rotation.z = THREE.MathUtils.lerp(
       this.ship.body.rotation.z,
       p.steer * 0.2,
@@ -1269,14 +1342,9 @@ export class GameEngine {
       this.bossVisual.cage.rotation.y -= dt * 0.035;
     }
     if (ready) {
-      const desired = new THREE.Vector3(
-        14 + Math.sin(this.time * 0.12) * 2,
-        9.5,
-        145,
-      );
-      this.cameraPosition.lerp(desired, 1 - Math.exp(-2 * dt));
-      this.cameraLook.set(-11, 9, 65);
-    } else {
+      this.cameraPosition.set(p.x + 9, p.y + 4, p.z + 13);
+      this.cameraLook.set(p.x - 5, p.y + 1, p.z - 3);
+    } else if (playing) {
       const speed = Math.hypot(p.vx, p.vz),
         forward = new THREE.Vector3(
           -Math.sin(p.heading),
@@ -1289,14 +1357,24 @@ export class GameEngine {
       );
       desired.y = Math.max(
         desired.y,
-        terrainHeight(desired.x, desired.z) + 3.5,
+        this.terrainHeight(desired.x, desired.z) + 3.5,
       );
-      this.cameraPosition.lerp(desired, 1 - Math.exp(-5.5 * dt));
+
       const look = new THREE.Vector3(p.x, p.y + 0.5, p.z).addScaledVector(
         forward,
         11,
       );
-      this.cameraLook.lerp(look, 1 - Math.exp(-8 * dt));
+      const duration = this.settings.effects ? 1.6 : 0.2;
+      this.deployment = Math.min(duration, this.deployment + dt);
+      if (this.deployment < duration) {
+        const t = this.deployment / duration,
+          ease = t * t * (3 - 2 * t);
+        this.cameraPosition.lerpVectors(this.deploymentPosition, desired, ease);
+        this.cameraLook.lerpVectors(this.deploymentLook, look, ease);
+      } else {
+        this.cameraPosition.lerp(desired, 1 - Math.exp(-5.5 * dt));
+        this.cameraLook.lerp(look, 1 - Math.exp(-8 * dt));
+      }
       this.camera.fov = THREE.MathUtils.lerp(
         this.camera.fov,
         62 + Math.min(12, speed * 0.09),
@@ -1318,7 +1396,7 @@ export class GameEngine {
     s.x = p.x;
     s.z = p.z;
     s.heading = p.heading;
-    s.altitude = Math.max(0, p.y - terrainHeight(p.x, p.z) - 1.7);
+    s.altitude = Math.max(0, p.y - this.terrainHeight(p.x, p.z) - 1.7);
     s.speed = Math.round(Math.hypot(p.vx, p.vz) * 3.6);
     s.boost = p.boost;
     s.enemies = this.enemies.filter(
@@ -1343,11 +1421,12 @@ export class GameEngine {
     );
     s.breached = this.breaches.filter((b) => b.breached).length;
     const active = this.breaches.findIndex((b) => b.gate > 0 && !b.breached);
-    const candidates = OUTPOSTS.map((site, index) => ({
-      site,
-      index,
-      distance: Math.hypot(site.x - p.x, site.z - p.z),
-    }))
+    const candidates = this.layout.outposts
+      .map((site, index) => ({
+        site,
+        index,
+        distance: Math.hypot(site.x - p.x, site.z - p.z),
+      }))
       .filter(({ index }) => this.enemies[index].hp > 0)
       .sort((a, b) => a.distance - b.distance);
     const chosen = active >= 0 ? active : candidates[0]?.index;
@@ -1355,7 +1434,7 @@ export class GameEngine {
     s.breachTime = active >= 0 ? this.breaches[active].remaining : 0;
     s.breachGate = active >= 0 ? this.breaches[active].gate : 0;
     if (chosen !== undefined) {
-      const site = OUTPOSTS[chosen],
+      const site = this.layout.outposts[chosen],
         breach = this.breaches[chosen];
       const goal = breach.breached
         ? { x: site.x, z: site.z, altitude: 17 }
@@ -1366,9 +1445,9 @@ export class GameEngine {
           ? "DESTROY EXPOSED RELAY"
           : breach.gate === 2
             ? "JUMP THE COUPLER · 90+ KM/H"
-            : `BREACH GATE 0${breach.gate + 1}`,
+            : `PASS GATE 0${breach.gate + 1}`,
         x: goal.x,
-        y: terrainHeight(goal.x, goal.z) + goal.altitude,
+        y: this.terrainHeight(goal.x, goal.z) + goal.altitude,
         z: goal.z,
         distance: 0,
       };
@@ -1378,9 +1457,9 @@ export class GameEngine {
       waypoint = {
         name: LEVELS[s.level].boss,
         detail: "REACTOR EXPOSED",
-        x: BOSS_POSITION.x,
+        x: this.layout.boss.x,
         y: 22,
-        z: BOSS_POSITION.z,
+        z: this.layout.boss.z,
         distance: 0,
       };
     waypoint.distance = Math.round(

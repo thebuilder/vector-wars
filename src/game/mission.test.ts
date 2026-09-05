@@ -1,3 +1,4 @@
+import { WORLDS } from "./worlds";
 import { describe, expect, it } from "vitest";
 import { OUTPOSTS, compassHeading, compassTicks } from "./layout";
 import { createBreaches, advanceBreaches } from "./mission";
@@ -70,16 +71,24 @@ describe("outpost breach routes", () => {
       expect(states[index].breached).toBe(true);
     },
   );
-  it.each(OUTPOSTS)(
+  it.each(
+    WORLDS.flatMap((world) =>
+      world.outposts.map((site) => ({
+        world,
+        site,
+        name: `${world.name} / ${site.name}`,
+      })),
+    ),
+  )(
     "can drive the entire $name breach route before the link expires",
-    (site) => {
+    ({ world, site }) => {
       const states = createBreaches(),
-        index = OUTPOSTS.indexOf(site),
+        index = world.outposts.indexOf(site),
         first = site.gates[0];
-      const v = createVehicle();
+      const v = createVehicle(world);
       Object.assign(v, {
         x: first.x,
-        y: terrainHeight(first.x, first.z) + 1.7,
+        y: terrainHeight(first.x, first.z, world) + 1.7,
         z: first.z,
         vz: 0,
       });
@@ -107,8 +116,9 @@ describe("outpost breach routes", () => {
             jump: false,
           },
           1 / 120,
+          world,
         );
-        advanceBreaches(states, prev, v, 1 / 120);
+        advanceBreaches(states, prev, v, 1 / 120, world);
       }
       expect(
         states[index].breached,

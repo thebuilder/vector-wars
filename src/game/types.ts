@@ -76,24 +76,24 @@ export const LEVELS = [
       "Three outposts. One reactor. Follow the amber breach gates, jump the coupler, then destroy each exposed relay.",
   },
   {
-    name: "GHOST CIRCUIT",
-    location: "RELAY VALLEY / SECTOR 12",
+    name: "GLASS CANYON",
+    location: "CRYSTAL RIDGE / SECTOR 12",
     boss: "THE ARCHITECT",
     color: "#b890ff",
     drones: 12,
     bossHealth: 1000,
     description:
-      "The signal leads deeper. Break the relays and bring the Architect down.",
+      "Climb the crystal ridges. Breach Echo Pass, Glass Spine and Night Lock to uncover the Architect.",
   },
   {
-    name: "LAST TRANSMISSION",
-    location: "GROUND ZERO / SECTOR 00",
+    name: "THE ASH SEA",
+    location: "CALDERA / SECTOR 00",
     boss: "THE OVERMIND",
     color: "#ffbc57",
     drones: 16,
     bossHealth: 1400,
     description:
-      "One final signal. One way out. End the Overmind and take back the grid.",
+      "Cross the ash valleys. Silence the three furnaces and end the Overmind beneath the caldera.",
   },
 ];
 export const WEAPONS: {

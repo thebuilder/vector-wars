@@ -1,4 +1,4 @@
-import { OUTPOSTS } from "./layout";
+import { WORLDS, type WorldLayout } from "./worlds";
 import { terrainHeight, segmentHitsSphere, type VehicleState } from "./physics";
 export const BREACH_SECONDS = 14;
 export interface Breach {
@@ -7,7 +7,7 @@ export interface Breach {
   breached: boolean;
 }
 export const createBreaches = (): Breach[] =>
-  OUTPOSTS.map(() => ({ gate: 0, remaining: 0, breached: false }));
+  WORLDS[0].outposts.map(() => ({ gate: 0, remaining: 0, breached: false }));
 export type BreachEvent = {
   site: number;
   kind: "started" | "gate" | "breached" | "expired";
@@ -17,6 +17,7 @@ export function advanceBreaches(
   previous: Pick<VehicleState, "x" | "y" | "z">,
   vehicle: VehicleState,
   dt: number,
+  world: WorldLayout = WORLDS[0],
 ): BreachEvent[] {
   const events: BreachEvent[] = [];
   states.forEach((state, index) => {
@@ -29,8 +30,8 @@ export function advanceBreaches(
         return;
       }
     }
-    const gate = OUTPOSTS[index].gates[state.gate];
-    const y = terrainHeight(gate.x, gate.z) + gate.altitude;
+    const gate = world.outposts[index].gates[state.gate];
+    const y = terrainHeight(gate.x, gate.z, world) + gate.altitude;
     const hit = gate.airborne
       ? vehicle.airborne &&
         Math.hypot(vehicle.vx, vehicle.vz) >= 25 &&

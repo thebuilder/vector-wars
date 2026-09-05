@@ -1,10 +1,5 @@
-import {
-  PILLARS,
-  RAMPS,
-  WORLD_CENTER_Z,
-  WORLD_RADIUS,
-  type Ramp,
-} from "./layout";
+import { WORLDS, type WorldLayout } from "./worlds";
+import { RAMPS, WORLD_CENTER_Z, WORLD_RADIUS, type Ramp } from "./layout";
 export interface VehicleState {
   x: number;
   y: number;
@@ -28,43 +23,63 @@ export const WORLD_LIMIT = WORLD_RADIUS;
 export const ramps = RAMPS;
 export const HOVER_HEIGHT = 1.7;
 export const VEHICLE_RADIUS = 2.2;
-export function terrainHeight(x: number, z: number): number {
+export function terrainHeight(
+  x: number,
+  z: number,
+  world: WorldLayout = WORLDS[0],
+): number {
   const r = Math.hypot(x, z - WORLD_CENTER_Z);
   const rolling =
     Math.sin(x * 0.019) * Math.sin(z * 0.015) * 2.2 +
     Math.sin(z * 0.034 + x * 0.008) * 1.3;
   const mountains = Math.max(0, r - 980) / 160;
+  const region =
+    world.id === 1
+      ? Math.sin(x * 0.006 + z * 0.002) * 6 + Math.sin(z * 0.014) * 2
+      : world.id === 2
+        ? Math.sin(x * 0.011) * Math.cos(z * 0.009) * 5 +
+          Math.sin(z * 0.016) * 3
+        : rolling;
   return (
-    rolling +
+    region +
     Math.min(1.8, mountains) *
       (28 +
         36 * Math.sin(x * 0.015 + z * 0.012) ** 2 +
         40 * Math.sin(x * 0.026 - z * 0.019) ** 2)
   );
 }
-export function rampHeight(ramp: Ramp, z: number) {
+export function rampHeight(
+  ramp: Ramp,
+  z: number,
+  world: WorldLayout = WORLDS[0],
+) {
   const t = Math.max(
     0,
     Math.min(1, (ramp.z + ramp.length / 2 - z) / ramp.length),
   );
-  const low = terrainHeight(ramp.x, ramp.z + ramp.length / 2);
-  const high = terrainHeight(ramp.x, ramp.z - ramp.length / 2) + ramp.height;
+  const low = terrainHeight(ramp.x, ramp.z + ramp.length / 2, world);
+  const high =
+    terrainHeight(ramp.x, ramp.z - ramp.length / 2, world) + ramp.height;
   return low + (high - low) * t;
 }
-export function surfaceHeight(x: number, z: number): number {
-  let h = terrainHeight(x, z);
-  for (const ramp of ramps) {
+export function surfaceHeight(
+  x: number,
+  z: number,
+  world: WorldLayout = WORLDS[0],
+): number {
+  let h = terrainHeight(x, z, world);
+  for (const ramp of world.ramps) {
     const t = (ramp.z + ramp.length / 2 - z) / ramp.length;
     if (Math.abs(x - ramp.x) < ramp.width / 2 && t >= 0 && t <= 1)
-      h = Math.max(h, rampHeight(ramp, z));
+      h = Math.max(h, rampHeight(ramp, z, world));
   }
   return h;
 }
-export function createVehicle(): VehicleState {
+export function createVehicle(world: WorldLayout = WORLDS[0]): VehicleState {
   return {
-    x: 0,
-    y: surfaceHeight(0, 125) + 1.7,
-    z: 125,
+    x: world.spawn.x,
+    y: surfaceHeight(world.spawn.x, world.spawn.z, world) + 1.7,
+    z: world.spawn.z,
     vx: 0,
     vy: 0,
     vz: 0,
@@ -78,6 +93,7 @@ export function stepVehicle(
   v: VehicleState,
   input: DriveInput,
   dt: number,
+  world: WorldLayout = WORLDS[0],
 ): { impact: number; boosting: boolean; landed: boolean } {
   const wasAirborne = v.airborne;
   const previous = { x: v.x, y: v.y, z: v.z };
@@ -108,20 +124,20 @@ export function stepVehicle(
   v.vz *= drag;
   v.x += v.vx * dt;
   v.z += v.vz * dt;
-  impact += resolveWorldContacts(v, previous);
-  const floor = surfaceHeight(v.x, v.z) + HOVER_HEIGHT;
+  impact += resolveWorldContacts(v, previous, world);
+  const floor = surfaceHeight(v.x, v.z, world) + HOVER_HEIGHT;
   if (input.jump && !v.airborne) {
     v.vy = 17;
     v.y += 0.25;
   }
   const displacement = floor - v.y;
-  const onRamp = ramps.some(
+  const onRamp = world.ramps.some(
     (r) =>
       Math.abs(v.x - r.x) < r.width / 2 && Math.abs(v.z - r.z) < r.length / 2,
   );
   const followingDeck = onRamp && !wasAirborne && !input.jump;
   const supportVelocity = followingDeck
-    ? (floor - surfaceHeight(previous.x, previous.z) - HOVER_HEIGHT) / dt
+    ? (floor - surfaceHeight(previous.x, previous.z, world) - HOVER_HEIGHT) / dt
     : 0;
   if (displacement > -1.2 && (v.vy < 6 || followingDeck))
     v.vy += (displacement * 95 - (v.vy - supportVelocity) * 12 + 24) * dt;
@@ -153,6 +169,7 @@ export function stepVehicle(
 export function resolveWorldContacts(
   v: VehicleState,
   previous: { x: number; y: number; z: number },
+  world: WorldLayout = WORLDS[0],
 ): number {
   let impact = 0;
   const bounce = (nx: number, nz: number) => {
@@ -163,7 +180,7 @@ export function resolveWorldContacts(
       impact += Math.max(0, -closing - 8) * 0.24;
     }
   };
-  for (const ramp of ramps) {
+  for (const ramp of world.ramps) {
     const left = ramp.x - ramp.width / 2,
       right = ramp.x + ramp.width / 2;
     const back = ramp.z - ramp.length / 2,
@@ -176,8 +193,8 @@ export function resolveWorldContacts(
       v.z >= front + r
     )
       continue;
-    const deck = rampHeight(ramp, v.z);
-    const prevDeck = rampHeight(ramp, previous.z);
+    const deck = rampHeight(ramp, v.z, world);
+    const prevDeck = rampHeight(ramp, previous.z, world);
     const wasSupported =
       previous.x >= left &&
       previous.x <= right &&
@@ -213,8 +230,8 @@ export function resolveWorldContacts(
       }
     }
   }
-  for (const pillar of PILLARS) {
-    const ground = terrainHeight(pillar.x, pillar.z);
+  for (const pillar of world.pillars) {
+    const ground = terrainHeight(pillar.x, pillar.z, world);
     if (v.y - 0.7 > ground + pillar.height || v.y + 0.7 < ground) continue;
     const dx = v.x - pillar.x,
       dz = v.z - pillar.z,

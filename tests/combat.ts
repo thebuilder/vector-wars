@@ -1,9 +1,10 @@
+import { EncounterDirector } from "../src/game/encounters";
 /** Browser integration fixture, excluded from the production build.
  * Exercises the actual WebGL engine with fixed simulation steps and controlled spawn poses.
  * Private access is confined to this fixture; the game exposes no cheats or debug globals.
  */
 import { GameEngine } from "../src/game/engine";
-import { OUTPOSTS, BOSS_POSITION } from "../src/game/layout";
+import { BOSS_POSITION } from "../src/game/layout";
 import { terrainHeight } from "../src/game/physics";
 import * as THREE from "three";
 const output = document.querySelector("#results")!;
@@ -34,7 +35,7 @@ document.querySelector("#run")!.addEventListener("click", () => {
       Object.assign(game.player, {
         x,
         z,
-        y: y ?? terrainHeight(x, z) + 1.7,
+        y: y ?? terrainHeight(x, z, game.layout) + 1.7,
         vx: 0,
         vy: 0,
         vz: 0,
@@ -111,6 +112,18 @@ document.querySelector("#run")!.addEventListener("click", () => {
     );
     engine.restart();
     cancelAnimationFrame(game.frame);
+    const region = game.layout.encounters[0],
+      beforePatrol = game.enemies.length;
+    pose(region.x, region.z);
+    game.invulnerable = 999;
+    tick(6.5);
+    assert(
+      game.enemies.length > beforePatrol,
+      "A signaled patrol arrives along the route",
+    );
+    engine.restart();
+    cancelAnimationFrame(game.frame);
+    game.encounterDirector = new EncounterDirector([]);
     const firstBoss = game.enemies.find((e: any) => e.kind === "boss");
     const originalBossHealth = firstBoss.hp;
     pose(BOSS_POSITION.x, BOSS_POSITION.z + 70);
@@ -191,6 +204,11 @@ document.querySelector("#run")!.addEventListener("click", () => {
     engine.restart();
     cancelAnimationFrame(game.frame);
     for (let level = 0; level < 3; level++) {
+      game.encounterDirector = new EncounterDirector([]);
+      assert(
+        game.layout.id === level && game.environment.name === `world-${level}`,
+        "The sector loads its own environment and simulation layout",
+      );
       // Remove only the nondeterministic patrol interference for relay/boss projectile assertions.
       // Drone damage and mines are independently exercised above and below.
       const escort = game.enemies.find((e: any) => e.kind === "drone");
@@ -207,9 +225,13 @@ document.querySelector("#run")!.addEventListener("click", () => {
           relay.hp === relay.maxHp,
           "Outpost shield blocks damage before breach",
         );
-        const site = OUTPOSTS[relay.phase];
+        const site = game.layout.outposts[relay.phase];
         for (const [index, gate] of site.gates.entries()) {
-          pose(gate.x, gate.z, terrainHeight(gate.x, gate.z) + gate.altitude);
+          pose(
+            gate.x,
+            gate.z,
+            terrainHeight(gate.x, gate.z, game.layout) + gate.altitude,
+          );
           game.player.airborne = gate.airborne;
           game.player.vz = gate.airborne ? -65 : 0;
           game.step(1 / 120);
@@ -306,6 +328,8 @@ document.querySelector("#run")!.addEventListener("click", () => {
 for (const checkpoint of [
   "outpost",
   "switchback",
+  "canyon",
+  "ash",
   "reactor",
   "meltdown",
   "debris",
@@ -320,23 +344,27 @@ for (const checkpoint of [
     });
     const game = engine as any;
     cancelAnimationFrame(game.frame);
+    if (checkpoint === "canyon" || checkpoint === "ash")
+      game.loadLevel(checkpoint === "canyon" ? 1 : 2);
     engine.start();
-    const isOutpost = checkpoint === "outpost" || checkpoint === "switchback";
+    game.deployment = 1.6;
+    const isOutpost = ["outpost", "switchback", "canyon", "ash"].includes(
+      checkpoint,
+    );
     const site = isOutpost
-      ? OUTPOSTS[checkpoint === "switchback" ? 1 : 0]
-      : BOSS_POSITION;
+      ? game.layout.outposts[checkpoint === "switchback" ? 1 : 0]
+      : game.layout.boss;
+    const viewX = isOutpost ? site.gates[0].x : site.x;
+    const viewZ = isOutpost ? site.gates[0].z + 35 : site.z + 125;
+    const ground = terrainHeight(viewX, viewZ, game.layout);
     Object.assign(game.player, {
-      x: site.x,
-      z: site.z + (isOutpost ? 270 : 125),
-      y: terrainHeight(site.x, site.z + 125) + 1.7,
+      x: viewX,
+      z: viewZ,
+      y: ground + 1.7,
       heading: 0,
     });
-    game.cameraPosition.set(
-      site.x + 12,
-      terrainHeight(site.x, site.z + 125) + 18,
-      site.z + (isOutpost ? 300 : 150),
-    );
-    game.cameraLook.set(site.x, 12, site.z);
+    game.cameraPosition.set(viewX, ground + 28, viewZ + 10);
+    game.cameraLook.set(viewX, ground + 5, viewZ - 80);
     if (checkpoint === "meltdown" || checkpoint === "debris") {
       game.snapshot.relays = 3;
       game.bossVisual.shield.visible = false;

@@ -1,13 +1,12 @@
+import { WORLDS, type WorldLayout } from "./worlds";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { terrainHeight, ramps, rampHeight } from "./physics";
-
 import {
-  PILLARS,
-  OUTPOSTS,
-  WORLD_RADIUS,
-  WORLD_CENTER_Z,
-} from "./layout";
+  terrainHeight as getTerrainHeight,
+  rampHeight as getRampHeight,
+} from "./physics";
+
+import { WORLD_RADIUS, WORLD_CENTER_Z } from "./layout";
 
 import { sampleRoad } from "./roads";
 
@@ -83,16 +82,19 @@ export function glow(
   sprite.scale.set(size, size, 1);
   return sprite;
 }
-function createSun(scene: THREE.Scene) {
+function createSun(scene: THREE.Group, world: WorldLayout) {
   // A distant, fixed-size light on the horizon rather than an arena prop.
   const sun = new THREE.Mesh(
     new THREE.CircleGeometry(105, 64),
-    new THREE.MeshBasicMaterial({ color: 0xe98e7b, fog: false }),
+    new THREE.MeshBasicMaterial({
+      color: world.id === 1 ? 0xbad8ee : 0xe98e7b,
+      fog: false,
+    }),
   );
   sun.position.set(-1100, 230, -2750);
   scene.add(sun);
 }
-function createSky(scene: THREE.Scene) {
+function createSky(scene: THREE.Group, world: WorldLayout) {
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(3900, 24, 16),
     new THREE.ShaderMaterial({
@@ -100,7 +102,11 @@ function createSky(scene: THREE.Scene) {
       depthWrite: false,
       vertexShader:
         "varying vec3 vPosition; void main(){vPosition=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}",
-      fragmentShader: `varying vec3 vPosition; void main(){float h=normalize(vPosition).y; vec3 col=mix(vec3(.09,.035,.085),vec3(.013,.022,.035),smoothstep(-.05,.42,h)); gl_FragColor=vec4(col,1.);}`,
+      uniforms: {
+        sky: { value: new THREE.Color(world.palette.sky) },
+        horizon: { value: new THREE.Color(world.palette.horizon) },
+      },
+      fragmentShader: `uniform vec3 sky; uniform vec3 horizon; varying vec3 vPosition; void main(){float h=normalize(vPosition).y; vec3 col=mix(horizon,sky,smoothstep(-.05,.42,h)); gl_FragColor=vec4(col,1.);}`,
     }),
   );
   scene.add(sky);
@@ -139,9 +145,10 @@ function createSky(scene: THREE.Scene) {
       }),
     ),
   );
-  createSun(scene);
+  if (world.id !== 1) createSun(scene, world);
 }
-function createTerrain(scene: THREE.Scene) {
+function createTerrain(scene: THREE.Group, world: WorldLayout) {
+  const terrainHeight = (x: number, z: number) => getTerrainHeight(x, z, world);
   const geo = new THREE.PlaneGeometry(3100, 3100, 240, 240);
   geo.rotateX(-Math.PI / 2);
   geo.translate(0, 0, WORLD_CENTER_Z);
@@ -152,7 +159,7 @@ function createTerrain(scene: THREE.Scene) {
   const surface = new THREE.Mesh(
     geo,
     new THREE.MeshStandardMaterial({
-      color: 0x080e17,
+      color: world.palette.ground,
       roughness: 0.85,
       metalness: 0.3,
       polygonOffset: true,
@@ -164,47 +171,79 @@ function createTerrain(scene: THREE.Scene) {
   const wire = new THREE.Mesh(
     geo,
     new THREE.MeshBasicMaterial({
-      color: 0x388c82,
+      color: world.palette.grid,
       wireframe: true,
       transparent: true,
-      opacity: 0.25,
+      opacity: 0.17,
     }),
   );
   wire.position.y = 0.015;
   scene.add(wire);
-  const grid = new THREE.GridHelper(2400, 160, 0x4db49f, 0x255957);
+  const grid = new THREE.GridHelper(
+    2400,
+    160,
+    world.palette.grid,
+    world.palette.grid,
+  );
   grid.position.y = -1.3;
   (grid.material as THREE.Material).transparent = true;
   (grid.material as THREE.Material).opacity = 0.25;
   scene.add(grid);
 }
-function createRoad(scene: THREE.Scene) {
-  const samples=sampleRoad();
-  const vertices:number[]=[],indices:number[]=[];
-  const edges=[[],[]] as number[][];
-  samples.forEach((sample,i)=>{
-    const {p,t,left,right,normal,gap}=sample;
-    vertices.push(left.x,left.y,left.z,right.x,right.y,right.z);
-    [left,right].forEach((edge,index)=>{
-      const a=edge.clone().addScaledVector(normal,.12),b=edge.clone().addScaledVector(normal,-.12);
-      edges[index].push(a.x,a.y+.02,a.z,b.x,b.y+.02,b.z);
+function createRoad(scene: THREE.Group, world: WorldLayout) {
+  const samples = sampleRoad(world);
+  const vertices: number[] = [],
+    indices: number[] = [];
+  const edges = [[], []] as number[][];
+  samples.forEach((sample, i) => {
+    const { p, t, left, right, normal, gap } = sample;
+    vertices.push(left.x, left.y, left.z, right.x, right.y, right.z);
+    [left, right].forEach((edge, index) => {
+      const a = edge.clone().addScaledVector(normal, 0.12),
+        b = edge.clone().addScaledVector(normal, -0.12);
+      edges[index].push(a.x, a.y + 0.02, a.z, b.x, b.y + 0.02, b.z);
     });
-    if(i<samples.length-1 && !gap && !samples[i+1].gap) {
-      const a=i*2;indices.push(a,a+1,a+2,a+1,a+3,a+2);
+    if (i < samples.length - 1 && !gap && !samples[i + 1].gap) {
+      const a = i * 2;
+      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
     }
-    if(i%8===0&&!gap) {
-      const dash=new THREE.Mesh(new THREE.BoxGeometry(.22,.04,3),new THREE.MeshBasicMaterial({color:0x78b4b1}));
-      dash.position.copy(p);dash.rotation.y=Math.atan2(t.x,t.z);scene.add(dash);
+    if (i % 8 === 0 && !gap) {
+      const dash = new THREE.Mesh(
+        new THREE.BoxGeometry(0.22, 0.04, 3),
+        new THREE.MeshBasicMaterial({ color: 0x78b4b1 }),
+      );
+      dash.position.copy(p);
+      dash.rotation.y = Math.atan2(t.x, t.z);
+      scene.add(dash);
     }
   });
-  [vertices,...edges].forEach((positions,index)=>{
-    const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setIndex(indices);geometry.computeVertexNormals();
-    const material=index===0?new THREE.MeshStandardMaterial({color:0x161522,metalness:.45,roughness:.6,side:THREE.DoubleSide}):new THREE.MeshBasicMaterial({color:0xff527d,side:THREE.DoubleSide});
-    scene.add(new THREE.Mesh(geometry,material));
+  [vertices, ...edges].forEach((positions, index) => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(positions, 3),
+    );
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    const material =
+      index === 0
+        ? new THREE.MeshStandardMaterial({
+            color: 0x161522,
+            metalness: 0.45,
+            roughness: 0.6,
+            side: THREE.DoubleSide,
+          })
+        : new THREE.MeshBasicMaterial({
+            color: world.palette.road,
+            side: THREE.DoubleSide,
+          });
+    scene.add(new THREE.Mesh(geometry, material));
   });
 }
-function createRamps(scene: THREE.Scene) {
-  for (const ramp of ramps) {
+function createRamps(scene: THREE.Group, world: WorldLayout) {
+  const rampHeight = (r: WorldLayout["ramps"][number], z: number) =>
+    getRampHeight(r, z, world);
+  for (const ramp of world.ramps) {
     const w = ramp.width / 2,
       l = ramp.length / 2,
       h = rampHeight(ramp, ramp.z - l) - rampHeight(ramp, ramp.z + l);
@@ -264,12 +303,18 @@ function createRamps(scene: THREE.Scene) {
     }
   }
 }
-function createScenery(scene: THREE.Scene) {
-  PILLARS.forEach((p, i) => {
+function createScenery(scene: THREE.Group, world: WorldLayout) {
+  const terrainHeight = (x: number, z: number) => getTerrainHeight(x, z, world);
+  world.pillars.forEach((p) => {
     const rock = outlined(
-      new THREE.CylinderGeometry(p.radius, p.radius, p.height, 6),
-      i % 3 ? 0x326b6b : 0x815579,
-      0x0d141d,
+      new THREE.CylinderGeometry(
+        world.id === 1 ? p.radius * 0.45 : p.radius,
+        p.radius,
+        p.height,
+        world.id === 1 ? 5 : 6,
+      ),
+      world.palette.rock,
+      world.palette.ground,
       0.8,
     );
     rock.position.set(p.x, terrainHeight(p.x, p.z) + p.height / 2, p.z);
@@ -281,7 +326,7 @@ function createScenery(scene: THREE.Scene) {
       scene.add(cap);
     }
   });
-  OUTPOSTS.forEach((site, i) => {
+  world.outposts.forEach((site, i) => {
     const pad = ring(60, [0xffbc57, 0xb890ff, 0x86fadd][i], 0.24);
     pad.rotation.x = -Math.PI / 2;
     pad.position.set(site.x, terrainHeight(site.x, site.z) + 0.4, site.z);
@@ -299,8 +344,9 @@ function createScenery(scene: THREE.Scene) {
 }
 
 /** Three physical markers communicate the breach order in world space. */
-export function createBreachGates() {
-  return OUTPOSTS.map((site) =>
+export function createBreachGates(world: WorldLayout = WORLDS[0]) {
+  const terrainHeight = (x: number, z: number) => getTerrainHeight(x, z, world);
+  return world.outposts.map((site) =>
     site.gates.map((gate, index) => {
       const group = new THREE.Group();
       group.position.set(
@@ -332,17 +378,82 @@ export function createBreachGates() {
     }),
   );
 }
-export function createWorld(scene: THREE.Scene) {
-  scene.fog = new THREE.FogExp2(0x080d16, 0.00085);
-  scene.add(new THREE.HemisphereLight(0x9fbfd2, 0x272033, 2));
-  const light = new THREE.DirectionalLight(0xffb8b0, 2.8);
+export function createWorld(
+  scene: THREE.Scene,
+  world: WorldLayout = WORLDS[0],
+) {
+  const root = new THREE.Group();
+  root.name = `world-${world.id}`;
+  scene.fog = new THREE.FogExp2(
+    world.palette.sky,
+    world.id === 1 ? 0.0012 : 0.00085,
+  );
+  root.add(
+    new THREE.HemisphereLight(
+      world.id === 1 ? 0xb1dfff : 0xe1c5ac,
+      world.palette.ground,
+      2.2,
+    ),
+  );
+  const light = new THREE.DirectionalLight(
+    world.id === 1 ? 0xabd4ff : 0xffb8b0,
+    2.8,
+  );
   light.position.set(-100, 160, -100);
-  scene.add(light);
-  createSky(scene);
-  createTerrain(scene);
-  createRoad(scene);
-  createRamps(scene);
-  createScenery(scene);
+  root.add(light);
+  const fill = new THREE.DirectionalLight(world.palette.grid, 1.4);
+  fill.position.set(140, 80, 180);
+  root.add(fill);
+  createSky(root, world);
+  createTerrain(root, world);
+  createRoad(root, world);
+  createRamps(root, world);
+  createScenery(root, world);
+  if (world.id === 1) {
+    for (let i = 0; i < 5; i++) {
+      const arc = new THREE.Mesh(
+        new THREE.TorusGeometry(400 + i * 75, 2, 4, 100, Math.PI),
+        new THREE.MeshBasicMaterial({
+          color: 0x64bde7,
+          transparent: true,
+          opacity: 0.1,
+          depthWrite: false,
+        }),
+      );
+      arc.position.set(-200, 50 + i * 15, -1200 - i * 80);
+      arc.rotation.z = 0.3;
+      root.add(arc);
+    }
+  }
+  if (world.id === 2) {
+    for (const x of [-1000, 950]) {
+      const volcano = outlined(
+        new THREE.CylinderGeometry(32, 200, 180, 16, 5),
+        0xa45336,
+        0x221515,
+      );
+      const base =
+        Math.min(
+          ...Array.from({ length: 16 }, (_, i) => {
+            const angle = (i / 16) * Math.PI * 2;
+            return getTerrainHeight(
+              x + Math.cos(angle) * 200,
+              -1100 + Math.sin(angle) * 200,
+              world,
+            );
+          }),
+        ) - 15;
+      volcano.position.set(x, base + 90, -1100);
+      root.add(volcano);
+      const crater = ring(32, 0xff9b3c, 2.5);
+      crater.rotation.x = Math.PI / 2;
+      crater.position.copy(volcano.position);
+      crater.position.y += 90;
+      root.add(crater);
+    }
+  }
+  scene.add(root);
+  return root;
 }
 export function createShip(texture: THREE.Texture) {
   const root = new THREE.Group(),

@@ -1,3 +1,5 @@
+import { EncounterDirector } from "./encounters";
+import { WORLDS } from "./worlds";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import { GameEngine } from "./engine";
@@ -49,6 +51,8 @@ function simulation() {
   });
   Object.assign(game, {
     scene,
+    layout: WORLDS[0],
+    encounterDirector: new EncounterDirector([]),
     texture,
     enemies,
     bossVisual: boss,
@@ -103,6 +107,59 @@ function advance(game: any, seconds: number) {
 }
 
 describe("combat and aftermath simulation", () => {
+  it("deploys without moving or resizing the craft, then eases the camera behind it", () => {
+    const game = simulation();
+    game.snapshot.phase = "ready";
+    Object.assign(game, {
+      ship: { root: new THREE.Group(), body: new THREE.Group(), exhausts: [] },
+      camera: new THREE.PerspectiveCamera(62, 1, 0.1, 4700),
+      cameraPosition: new THREE.Vector3(),
+      cameraLook: new THREE.Vector3(),
+      deploymentPosition: new THREE.Vector3(),
+      deploymentLook: new THREE.Vector3(),
+      deployment: 1.6,
+      settings: { effects: true },
+    });
+    game.renderScene(1 / 60);
+    const position = game.ship.root.position.clone(),
+      scale = game.ship.root.scale.clone(),
+      camera = game.cameraPosition.clone();
+    game.start();
+    game.renderScene(0);
+    expect(game.ship.root.position.distanceTo(position)).toBe(0);
+    expect(game.ship.root.scale.equals(scale)).toBe(true);
+    expect(game.cameraPosition.distanceTo(camera)).toBe(0);
+    game.renderScene(1 / 60);
+    expect(game.cameraPosition.distanceTo(camera)).toBeLessThan(0.1);
+    for (let i = 0; i < 120; i++) game.renderScene(1 / 60);
+    expect(Math.abs(game.cameraPosition.x - game.player.x)).toBeLessThan(0.1);
+    expect(game.cameraPosition.z - game.player.z).toBeGreaterThan(17);
+    game.pause();
+    const paused = game.cameraPosition.clone();
+    game.renderScene(0.5);
+    expect(game.cameraPosition.equals(paused)).toBe(true);
+  });
+  it("provides live heading independently of the throttled HUD snapshot", () => {
+    const game = simulation();
+    game.player.heading = 1.234;
+    expect(game.getHeading()).toBe(1.234);
+    expect(game.snapshot.heading).toBe(0);
+  });
+  it.each(WORLDS)(
+    "uses $name gates when advancing the real engine",
+    (world) => {
+      const game = simulation();
+      game.layout = world;
+      const gate = world.outposts[0].gates[0];
+      Object.assign(game.player, {
+        x: gate.x,
+        z: gate.z,
+        y: terrainHeight(gate.x, gate.z, world) + 1.7,
+      });
+      advance(game, 0.01);
+      expect(game.breaches[0].gate).toBe(1);
+    },
+  );
   it("blocks relay damage until its own route is breached", () => {
     const game = simulation(),
       relay = game.enemies[0];

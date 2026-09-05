@@ -29,7 +29,10 @@ export class CombatEffects {
         transparent: true,
       }),
   );
-  constructor(private scene: THREE.Scene) {}
+  constructor(
+    private scene: THREE.Scene,
+    private height: (x: number, z: number) => number = terrainHeight,
+  ) {}
   burst(position: THREE.Vector3, size = 1) {
     for (
       let i = 0;
@@ -85,7 +88,7 @@ export class CombatEffects {
       f.mesh.position.addScaledVector(f.velocity, dt);
       f.mesh.rotation.x += f.spin.x * dt;
       f.mesh.rotation.z += f.spin.z * dt;
-      const ground = terrainHeight(f.mesh.position.x, f.mesh.position.z) + 0.3;
+      const ground = this.height(f.mesh.position.x, f.mesh.position.z) + 0.3;
       if (f.mesh.position.y < ground) {
         f.mesh.position.y = ground;
         f.velocity.y = Math.abs(f.velocity.y) * 0.3;

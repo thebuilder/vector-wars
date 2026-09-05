@@ -1,27 +1,35 @@
-import { Crosshair, Rocket, Disc, Map } from "lucide-react";
+import { Crosshair, Rocket, Disc } from "lucide-react";
 import { Progress } from "./ui/progress";
 import { WEAPONS, type Snapshot, type Weapon } from "../game/types";
 const ICONS = { laser: Crosshair, missile: Rocket, mine: Disc };
 export function DrivingHUD({
   state,
   onWeapon,
-  onMap,
 }: {
   state: Snapshot;
   onWeapon: (weapon: Weapon) => void;
-  onMap: () => void;
 }) {
   const selected = WEAPONS.find((w) => w.id === state.weapon)!;
   return (
     <>
-      <button className="map-trigger" onClick={onMap}>
-        <Map size={15} />
-        <kbd>M</kbd> MAP
-      </button>
       <section className="drive-vitals" aria-label="Vehicle telemetry">
+        <div className="vitals-heading">
+          <span>
+            <i className="led" /> VXR–01 / ONLINE
+          </span>
+          <span>ION DRIVE</span>
+        </div>
         <div className="drive-speed">
-          <strong>{state.speed}</strong>
-          <span>KM/H{state.altitude > 2 && <small>AIRBORNE</small>}</span>
+          <strong>{String(state.speed).padStart(3, "0")}</strong>
+          <span>
+            KM/H
+            <small>{state.altitude > 2 ? "AIRBORNE" : "GROUND SPEED"}</small>
+          </span>
+          <div className="drive-speed-segments" aria-hidden="true">
+            {Array.from({ length: 24 }, (_, i) => (
+              <i key={i} className={i < state.speed / 12 ? "lit" : ""} />
+            ))}
+          </div>
         </div>
         <div className="drive-meters">
           <div>
@@ -31,6 +39,7 @@ export function DrivingHUD({
             </strong>
           </div>
           <Progress
+            cells={22}
             value={state.health}
             aria-label="Hull integrity"
             className={state.health < 30 ? "hull-critical" : ""}
@@ -40,6 +49,7 @@ export function DrivingHUD({
             <strong>{Math.round(state.boost)}%</strong>
           </div>
           <Progress
+            cells={22}
             value={state.boost}
             aria-label="Boost capacitor"
             className="boost-progress"

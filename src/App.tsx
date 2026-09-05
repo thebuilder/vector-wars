@@ -48,7 +48,7 @@ const controls = [
   ["1 2 3", "Select weapon"],
   ["Q / E", "Cycle weapons"],
   ["R", "Recover vehicle"],
-  ["M", "Sector map"],
+  ["M", "Expand minimap (keeps driving)"],
   ["ESC", "Pause / resume"],
 ];
 function loadSettings(): Settings {
@@ -173,14 +173,7 @@ export default function App() {
     if (active) engine.current?.pause();
     setDialog(name);
   };
-  const openMap = useCallback(() => {
-    engine.current?.pause();
-    setMapOpen(true);
-  }, []);
-  const closeMap = () => {
-    setMapOpen(false);
-    engine.current?.resume();
-  };
+  const toggleMap = useCallback(() => setMapOpen((open) => !open), []);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (
@@ -189,15 +182,16 @@ export default function App() {
           event.target instanceof Element &&
           event.target.closest("input,textarea,select,dialog")
         ) &&
-        !menu
+        !menu &&
+        !event.repeat
       ) {
         event.preventDefault();
-        openMap();
+        toggleMap();
       }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [menu, openMap]);
+  }, [menu, toggleMap]);
   const toggleFullscreen = async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
@@ -371,7 +365,6 @@ export default function App() {
         <DrivingHUD
           state={state}
           onWeapon={(weapon) => engine.current?.setWeapon(weapon)}
-          onMap={openMap}
         />
       )}
 
@@ -574,11 +567,20 @@ export default function App() {
           )}
         </>
       )}
-      {menu && (
-        <div className="radar-position">
-          <Radar state={state} />
-        </div>
-      )}
+      <div
+        className={`radar-position ${!menu ? "driving-radar" : ""} ${!menu && mapOpen ? "map-expanded" : ""}`}
+      >
+        <Radar state={state} />
+        {!menu && (
+          <button
+            className="radar-toggle"
+            onClick={toggleMap}
+            aria-expanded={mapOpen}
+          >
+            M · {mapOpen ? "COMPACT MAP" : "EXPAND MAP"}
+          </button>
+        )}
+      </div>
 
       {menu && (
         <footer className="bottom-deck">
@@ -673,18 +675,7 @@ export default function App() {
         </span>
       </div>
 
-      {mapOpen && (
-        <GameDialog title={level.name} eyebrow="SECTOR MAP" onClose={closeMap}>
-          <div className="expanded-map">
-            <Radar state={state} />
-          </div>
-          <p>Amber: next gate / reactor · Pink: hostiles · Mint: supplies</p>
-          <Button variant="primary" onClick={closeMap}>
-            BACK TO DRIVING
-          </Button>
-        </GameDialog>
-      )}
-      {state.phase === "paused" && !dialog && !mapOpen && (
+      {state.phase === "paused" && !dialog && (
         <GameDialog
           title="Signal on hold."
           eyebrow="SYSTEM // PAUSED"

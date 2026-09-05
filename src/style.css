@@ -2206,55 +2206,92 @@ h1 > span:first-of-type {
   position: absolute;
   left: 32px;
   bottom: 32px;
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 16px 20px;
-  background: #061018cc;
+  width: 312px;
+  box-sizing: border-box;
+  padding: 15px 20px 18px;
+  background: linear-gradient(135deg, #0a1c22e8, #050e16e8);
+  border: 1px solid #86fadd30;
   border-left: 2px solid #86fadd;
   pointer-events: none;
 }
-.drive-speed {
+.vitals-heading {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 11px;
+  border-bottom: 1px solid #86fadd25;
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: #91b3ac;
+}
+.vitals-heading > span:first-child {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 95px;
+  gap: 7px;
+  color: #c3e5db;
+}
+.drive-speed {
+  display: grid;
+  grid-template-columns: 3ch minmax(0, 1fr);
+  align-items: center;
+  gap: 5px 16px;
+  padding: 12px 0 15px;
+  font: 500 48px var(--afterglow-font-mono);
 }
 .drive-speed > strong {
-  font: 500 39px var(--afterglow-font-sans);
+  font: inherit;
   line-height: 1;
   color: #e1fff1;
   font-variant-numeric: tabular-nums;
 }
 .drive-speed > span {
-  font-size: 9px;
-  color: #9baea7;
+  font: 10px var(--afterglow-font-mono);
+  color: #b3cec4;
 }
 .drive-speed small {
   display: block;
+  min-height: 10px;
   font-size: 7px;
-  color: #ffca7d;
+  color: #88a79d;
   margin-top: 6px;
+  letter-spacing: 0.6px;
+}
+.drive-speed-segments {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 3px;
+  height: 5px;
+  margin-top: 5px;
+}
+.drive-speed-segments i {
+  flex: 1;
+  background: #86fadd16;
+}
+.drive-speed-segments i.lit {
+  background: #bafce1;
+  box-shadow: 0 0 5px #86fadd55;
 }
 .drive-meters {
-  width: 150px;
+  width: 100%;
 }
 .drive-meters > div:not([data-slot]) {
   display: flex;
   justify-content: space-between;
   font-size: 9px;
   color: #b9cac3;
-  margin-bottom: 5px;
+  margin-bottom: 7px;
   letter-spacing: 1px;
 }
+.drive-meters strong {
+  font-variant-numeric: tabular-nums;
+}
 .drive-meters [data-slot="progress"] {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .drive-meters [data-slot="progress"]:last-child {
   margin-bottom: 0;
 }
 .drive-meters [data-slot="progress-track"] {
-  height: 5px;
+  height: 9px;
 }
 .drive-weapons {
   position: absolute;
@@ -2302,34 +2339,55 @@ h1 > span:first-of-type {
 .drive-weapons kbd {
   font-size: 10px;
 }
-.map-trigger {
-  position: absolute;
-  right: 34px;
-  top: 82px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 34px;
-  padding: 6px 10px;
-  font-size: 10px;
-  letter-spacing: 1px;
-  color: #c7dfd5;
-  background: #061018b0;
+.is-game .driving-radar {
+  display: block;
+  right: 32px;
+  bottom: 164px;
+  width: 224px;
+  padding: 0 12px;
+  background: #061018c9;
   border: 1px solid #86fadd30;
-  cursor: pointer;
 }
-.map-trigger kbd {
-  font-size: 9px;
-  padding: 2px 4px;
-  border: 1px solid #86fadd50;
+.is-game .driving-radar .radar svg {
+  height: 174px;
 }
-.expanded-map .radar svg {
+.radar-toggle {
   width: 100%;
-  height: 340px;
+  padding: 9px 0;
+  border: 0;
+  background: none;
+  color: #b4d5c8;
+  font: 8px var(--afterglow-font-mono);
+  letter-spacing: 1px;
+  cursor: pointer;
+  pointer-events: auto;
 }
-.expanded-map .radar-heading,
-.expanded-map .radar-legend {
-  display: none;
+.radar-toggle:hover {
+  color: #e1fff1;
+}
+.radar-toggle:focus-visible {
+  outline: 1px solid #86fadd;
+  outline-offset: 2px;
+}
+.is-game .driving-radar.map-expanded {
+  width: min(400px, 45vw);
+}
+.is-game .driving-radar.map-expanded .radar svg {
+  height: min(310px, 45vh);
+}
+.convoy-status {
+  margin-top: 9px;
+  padding: 8px 0;
+  border-top: 1px solid #9bddff30;
+  color: #9bddff;
+  font-size: 8px;
+  line-height: 1.8;
+  letter-spacing: 0.6px;
+}
+.convoy-status strong {
+  display: block;
+  color: #d6eeff;
+  font-size: 10px;
 }
 .pause-stats {
   display: flex;
@@ -2350,13 +2408,18 @@ h1 > span:first-of-type {
     left: 18px;
     bottom: 22px;
     padding: 12px;
-    gap: 12px;
+    width: 260px;
   }
-  .drive-meters {
-    width: 110px;
+  .drive-speed {
+    font-size: 38px;
   }
-  .drive-speed > strong {
-    font-size: 30px;
+  .is-game .driving-radar {
+    right: 18px;
+    bottom: 144px;
+    width: 200px;
+  }
+  .is-game .driving-radar .radar svg {
+    height: 145px;
   }
   .drive-weapons {
     right: 18px;
@@ -2371,7 +2434,7 @@ h1 > span:first-of-type {
 @media (max-width: 600px) {
   .drive-vitals,
   .drive-weapons,
-  .map-trigger {
+  .is-game .driving-radar {
     display: none;
   }
 }

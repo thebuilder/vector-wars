@@ -85,11 +85,23 @@ export function Radar({ state }: { state: Snapshot }) {
           .map((b, i) => {
             const x = 110 + b.x * scale,
               y = 94 + (b.z - WORLD_CENTER_Z) * scale;
-            return b.kind === "repair" ? (
+            return b.kind === "transport" ? (
+              <g key={i} transform={`translate(${x} ${y})`}>
+                <rect
+                  x="-4"
+                  y="-4"
+                  width="8"
+                  height="8"
+                  fill="#061018"
+                  stroke="#9bddff"
+                />
+                <path d="M-2 0h4M0-2v4" stroke="#9bddff" />
+              </g>
+            ) : b.kind === "repair" || b.kind === "cargo" ? (
               <path
                 key={i}
                 d={`M${x - 2.5} ${y}h5M${x} ${y - 2.5}v5`}
-                stroke="#86fadd"
+                stroke={b.kind === "cargo" ? "#9bddff" : "#86fadd"}
               />
             ) : b.kind === "drone" ? (
               <circle
@@ -130,8 +142,20 @@ export function Radar({ state }: { state: Snapshot }) {
           <i className="dot" />
           SUPPLY
         </span>
-        <span>↑ N</span>
+        <span style={{ color: "#9bddff" }}>▣ CONVOY</span>
       </div>
+      {state.phase !== "ready" && (
+        <div className="convoy-status">
+          {state.convoys > 0 ? (
+            <>
+              <span>OPTIONAL · {state.convoys} CONVOYS</span>
+              <strong>INTERCEPT CARGO · {state.convoyDistance} M</strong>
+            </>
+          ) : (
+            <strong>CONVOYS CLEARED</strong>
+          )}
+        </div>
+      )}
     </div>
   );
 }

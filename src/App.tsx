@@ -1,3 +1,4 @@
+import { BreachGuide } from "./components/BreachGuide";
 import { DrivingHUD } from "./components/DrivingHUD";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -48,6 +49,7 @@ const controls = [
   ["1 2 3", "Select weapon"],
   ["Q / E", "Cycle weapons"],
   ["R", "Recover vehicle"],
+  ["T", "Select next outpost"],
   ["M", "Expand minimap (keeps driving)"],
   ["ESC", "Pause / resume"],
 ];
@@ -503,6 +505,14 @@ export default function App() {
                 <small>SEC / {state.breachGate + 1} OF 3</small>
               </span>
             )}
+            {state.relays < 3 && (
+              <BreachGuide
+                gate={state.missionGate}
+                speed={state.speed}
+                airborne={state.airborne}
+                awaitingLaunch={state.awaitingLaunch}
+              />
+            )}
           </div>
           <div
             className="hull-impact"
@@ -563,6 +573,9 @@ export default function App() {
                 value={(state.bossHealth / state.bossMaxHealth) * 100}
                 aria-label="Boss health"
               />
+              <p className="boss-attack-warning" role="status">
+                {state.bossAttack || "ARMORED CORE · MISSILES DEAL FULL DAMAGE"}
+              </p>
             </div>
           )}
         </>

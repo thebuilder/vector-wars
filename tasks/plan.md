@@ -17,3 +17,7 @@ Keep the vehicle at its actual driving pose and ease the camera into chase posit
 ## Cockpit restoration and convoy expansion
 
 Restore the segmented telemetry styling in a fixed-size card, bring the chase camera closer, and keep the minimap continuously visible. Its M expansion must not pause or block driving. Add optional escorted supply transports on each sector's roads with physical contacts, projectile destruction, and one-time recoverable cargo rewards. Verify card geometry at speed digit boundaries, convoy behavior, existing campaign progression, and desktop presentation.
+
+## Simulated playtest iteration
+
+Three independent subagent reviews identified contradictory launch direction, involuntary objective switching, premature combat pressure, weak breach feedback, and repetitive bosses. Implement protected launch, route-aligned heading, stable mission selection with T switching, compact breach guidance, specific missed-coupler feedback, distinct boss telegraphs and attacks, pulse-resistant armor, and clear boss arenas. Preserve the segmented cockpit, close camera, and live minimap. Evidence and remaining human-playtest questions are recorded in playtest-feedback-2026-09-06.md.

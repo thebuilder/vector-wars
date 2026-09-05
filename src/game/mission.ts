@@ -5,12 +5,14 @@ export interface Breach {
   gate: number;
   remaining: number;
   breached: boolean;
+  missedInside?: boolean;
 }
 export const createBreaches = (): Breach[] =>
   WORLDS[0].outposts.map(() => ({ gate: 0, remaining: 0, breached: false }));
 export type BreachEvent = {
   site: number;
-  kind: "started" | "gate" | "breached" | "expired";
+  kind: "started" | "gate" | "breached" | "expired" | "missed";
+  reason?: "speed" | "airborne";
 };
 export function advanceBreaches(
   states: Breach[],
@@ -26,6 +28,7 @@ export function advanceBreaches(
       state.remaining = Math.max(0, state.remaining - dt);
       if (state.remaining === 0) {
         state.gate = 0;
+        state.missedInside = false;
         events.push({ site: index, kind: "expired" });
         return;
       }
@@ -33,9 +36,7 @@ export function advanceBreaches(
     const gate = world.outposts[index].gates[state.gate];
     const y = terrainHeight(gate.x, gate.z, world) + gate.altitude;
     const hit = gate.airborne
-      ? vehicle.airborne &&
-        Math.hypot(vehicle.vx, vehicle.vz) >= 25 &&
-        segmentHitsSphere(
+      ? segmentHitsSphere(
           previous.x,
           previous.y,
           previous.z,
@@ -59,7 +60,24 @@ export function advanceBreaches(
           gate.z,
           15,
         );
+    if (gate.airborne) {
+      const inside =
+        Math.hypot(vehicle.x - gate.x, vehicle.y - y, vehicle.z - gate.z) <= 8;
+      const reason = !vehicle.airborne
+        ? "airborne"
+        : Math.hypot(vehicle.vx, vehicle.vz) < 25
+          ? "speed"
+          : undefined;
+      if (hit && reason) {
+        if (!state.missedInside)
+          events.push({ site: index, kind: "missed", reason });
+        state.missedInside = inside;
+        return;
+      }
+      if (!inside) state.missedInside = false;
+    }
     if (!hit) return;
+    state.missedInside = false;
     state.gate++;
     if (state.gate === 3) {
       state.breached = true;

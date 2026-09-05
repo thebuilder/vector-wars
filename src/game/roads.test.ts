@@ -14,6 +14,13 @@ function intersects(a: Vector3, b: Vector3, c: Vector3, d: Vector3) {
 }
 describe.each(WORLDS)("$name road topology", (world) => {
   const points = worldRoadCurve(world).getSpacedPoints(1800);
+  it("keeps the boss arena clear for circling and jumping", () => {
+    for (const pillar of world.pillars)
+      expect(
+        Math.hypot(pillar.x - world.boss.x, pillar.z - world.boss.z) -
+          pillar.radius,
+      ).toBeGreaterThan(150);
+  });
   it("passes through every checkpoint in its approach direction", () => {
     const curve = worldRoadCurve(world);
     for (const site of world.outposts)

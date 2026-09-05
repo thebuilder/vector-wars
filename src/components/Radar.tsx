@@ -85,7 +85,38 @@ export function Radar({ state }: { state: Snapshot }) {
           .map((b, i) => {
             const x = 110 + b.x * scale,
               y = 94 + (b.z - WORLD_CENTER_Z) * scale;
-            return b.kind === "transport" ? (
+            return b.kind === "gate" ? (
+              <g key={i} transform={`translate(${x} ${y})`}>
+                <circle
+                  r="7"
+                  fill="#061018"
+                  stroke="#ffdc94"
+                  strokeWidth="1.5"
+                />
+                <circle
+                  r="10"
+                  fill="none"
+                  stroke="#86fadd"
+                  strokeOpacity=".5"
+                />
+                <text
+                  className="radar-gate-number"
+                  textAnchor="middle"
+                  dy="2.5"
+                >
+                  {state.breachGate + 1}
+                </text>
+              </g>
+            ) : b.kind === "boss" ? (
+              <g key={i} transform={`translate(${x} ${y})`}>
+                <path
+                  d="M0-5 5-2 5 3 0 6-5 3-5-2Z"
+                  fill="#251b12"
+                  stroke="#ffbc57"
+                />
+                <path d="M-2-1 0 2 2-1M0 2v2" fill="none" stroke="#ffbc57" />
+              </g>
+            ) : b.kind === "transport" ? (
               <g key={i} transform={`translate(${x} ${y})`}>
                 <rect
                   x="-4"
@@ -119,9 +150,7 @@ export function Radar({ state }: { state: Snapshot }) {
                 y={y - 3}
                 width="6"
                 height="6"
-                fill={
-                  b.kind === "boss" || b.kind === "gate" ? "#ffbc57" : "#ff5b82"
-                }
+                fill="#ff5b82"
                 transform={`rotate(45 ${x} ${y})`}
               />
             );
@@ -143,6 +172,7 @@ export function Radar({ state }: { state: Snapshot }) {
           SUPPLY
         </span>
         <span style={{ color: "#9bddff" }}>▣ CONVOY</span>
+        <span className="radar-gate-key">◎ NEXT GATE</span>
       </div>
       {state.phase !== "ready" && (
         <div className="convoy-status">
@@ -150,6 +180,7 @@ export function Radar({ state }: { state: Snapshot }) {
             <>
               <span>OPTIONAL · {state.convoys} CONVOYS</span>
               <strong>INTERCEPT CARGO · {state.convoyDistance} M</strong>
+              <span>REPAIRS + AMMO</span>
             </>
           ) : (
             <strong>CONVOYS CLEARED</strong>

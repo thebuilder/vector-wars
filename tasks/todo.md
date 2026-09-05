@@ -17,3 +17,9 @@
 - [x] Persistent minimap with live M expansion
 - [x] Two escorted supply convoys per sector, armored transport model, and recoverable cargo
 - [x] Convoy regression tests and browser HUD geometry checks
+
+- [x] Three independent simulated playtester reviews and evidence report
+- [x] Protected launch, route-facing craft, sticky objective and T selection
+- [x] Compact breach guidance, distinct gate marker, and specific coupler failure feedback
+- [x] Distinct telegraphed bosses, jumpable ground pulse, and armor weapon roles
+- [x] Boss arena clearance and regression/browser verification

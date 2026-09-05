@@ -2438,3 +2438,83 @@ h1 > span:first-of-type {
     display: none;
   }
 }
+
+/* Keep route instructions attached to the next action, above the driving view. */
+.is-game .navigation-cue:has(.breach-guide) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  row-gap: 10px;
+}
+.breach-guide {
+  grid-column: 1 / -1;
+  padding-top: 8px;
+  border-top: 1px solid #ffbc5726;
+  font: 9px var(--afterglow-font-mono);
+  letter-spacing: 0.4px;
+}
+.breach-steps {
+  display: flex;
+  align-items: center;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  color: #83928e;
+}
+.breach-steps li {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 10px;
+}
+.breach-steps li:last-child {
+  flex: 0;
+}
+.breach-steps i {
+  font-style: normal;
+  color: #6b7b75;
+}
+.breach-steps .active {
+  color: #ffe0a7;
+}
+.breach-steps .complete {
+  color: #86fadd;
+}
+.breach-guide p {
+  margin: 7px 0 0;
+  color: #b4bfb9;
+  line-height: 1.4;
+}
+.breach-guide .launch-hint,
+.jump-readiness .ready {
+  color: #86fadd;
+}
+.breach-guide .outpost-switch-hint {
+  margin-top: 4px;
+  color: #90a79e;
+  font-size: 8px;
+}
+.jump-readiness {
+  display: flex;
+  gap: 14px;
+  white-space: nowrap;
+}
+.radar .radar-gate-number {
+  fill: #ffe0a7;
+  font: 600 8px var(--afterglow-font-mono);
+}
+.radar-legend {
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.radar-gate-key {
+  color: #ffdc94;
+}
+
+.boss-attack-warning {
+  margin: 9px 0 0;
+  color: #ffcb8a;
+  font-size: 9px;
+  line-height: 1.5;
+  letter-spacing: 0.5px;
+  text-align: center;
+}

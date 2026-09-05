@@ -8,6 +8,7 @@ function crossGate(
   states: ReturnType<typeof createBreaches>,
   gateIndex: number,
   airborne = true,
+  speed = 65,
 ) {
   const gate = OUTPOSTS[0].gates[gateIndex];
   const v = {
@@ -15,7 +16,7 @@ function crossGate(
     x: gate.x,
     y: terrainHeight(gate.x, gate.z) + gate.altitude,
     z: gate.z - 1,
-    vz: -65,
+    vz: -speed,
     airborne,
   };
   return advanceBreaches(states, { ...v, z: gate.z + 1 }, v, 1 / 120);
@@ -46,6 +47,87 @@ describe("outpost breach routes", () => {
     crossGate(states, 2);
     advanceBreaches(states, v, v, 60);
     expect(states[0].breached).toBe(true);
+  });
+  it.each([
+    { airborne: true, speed: 24, reason: "speed" },
+    { airborne: false, speed: 65, reason: "airborne" },
+  ])(
+    "explains a coupler miss caused by $reason without resetting the run",
+    ({ airborne, speed, reason }) => {
+      const states = createBreaches();
+      crossGate(states, 0);
+      crossGate(states, 1);
+      const remaining = states[0].remaining;
+      expect(crossGate(states, 2, airborne, speed)).toEqual([
+        { site: 0, kind: "missed", reason },
+      ]);
+      expect(states[0].gate).toBe(2);
+      expect(states[0].remaining).toBeCloseTo(remaining - 1 / 120);
+      expect(states[0].breached).toBe(false);
+    },
+  );
+  it("warns once inside the coupler and allows another warning after leaving", () => {
+    const states = createBreaches();
+    crossGate(states, 0);
+    crossGate(states, 1);
+    expect(crossGate(states, 2, true, 24)).toHaveLength(1);
+    expect(crossGate(states, 2, true, 24)).toEqual([]);
+    const gate = OUTPOSTS[0].gates[2];
+    const v = {
+      ...createVehicle(),
+      x: gate.x,
+      y: terrainHeight(gate.x, gate.z) + gate.altitude,
+      z: gate.z + 20,
+      vz: 24,
+      airborne: true,
+    };
+    expect(advanceBreaches(states, { ...v, z: gate.z }, v, 1 / 120)).toEqual(
+      [],
+    );
+    expect(crossGate(states, 2, true, 24)).toEqual([
+      { site: 0, kind: "missed", reason: "speed" },
+    ]);
+  });
+  it("accepts a valid retry even after a missed crossing", () => {
+    const states = createBreaches();
+    crossGate(states, 0);
+    crossGate(states, 1);
+    crossGate(states, 2, true, 24);
+    expect(crossGate(states, 2, true, 25)).toEqual([
+      { site: 0, kind: "breached" },
+    ]);
+    expect(states[0].missedInside).toBe(false);
+  });
+  it("does not report a coupler miss without a swept sphere intersection", () => {
+    const states = createBreaches();
+    crossGate(states, 0);
+    crossGate(states, 1);
+    const gate = OUTPOSTS[0].gates[2];
+    const v = {
+      ...createVehicle(),
+      x: gate.x + 20,
+      y: terrainHeight(gate.x, gate.z) + gate.altitude,
+      z: gate.z - 10,
+      vz: -20,
+      airborne: true,
+    };
+    expect(
+      advanceBreaches(states, { ...v, z: gate.z + 10 }, v, 1 / 120),
+    ).toEqual([]);
+  });
+  it("clears coupler warning state when the link expires", () => {
+    const states = createBreaches();
+    crossGate(states, 0);
+    crossGate(states, 1);
+    crossGate(states, 2, true, 24);
+    const v = createVehicle();
+    advanceBreaches(states, v, v, 15);
+    expect(states[0].missedInside).toBe(false);
+    crossGate(states, 0);
+    crossGate(states, 1);
+    expect(crossGate(states, 2, true, 24)).toEqual([
+      { site: 0, kind: "missed", reason: "speed" },
+    ]);
   });
   it.each(OUTPOSTS)(
     "launches through the $name coupler using the actual ramp physics",

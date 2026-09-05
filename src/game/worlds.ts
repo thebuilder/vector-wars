@@ -82,10 +82,12 @@ function makeWorld(
       height:
         (id === 1 ? 28 : 12) + (Math.sin(i * 17) + 1) * (id === 1 ? 35 : 22),
     };
-  }).filter((p) =>
-    points.every(
-      (point) => Math.hypot(point.x - p.x, point.z - p.z) > p.radius + 18,
-    ),
+  }).filter(
+    (p) =>
+      Math.hypot(p.x - boss.x, p.z - boss.z) > p.radius + 150 &&
+      points.every(
+        (point) => Math.hypot(point.x - p.x, point.z - p.z) > p.radius + 18,
+      ),
   );
   const ramps = [
     { x: spawn.x, z: spawn.z - 60, width: 18, length: 30, height: 8 },
@@ -132,7 +134,11 @@ export const WORLDS: WorldLayout[] = [
     name: "THE NEON WASTES",
     outposts: OUTPOSTS,
     ramps: RAMPS,
-    pillars: PILLARS,
+    pillars: PILLARS.filter(
+      (p) =>
+        Math.hypot(p.x - BOSS_POSITION.x, p.z - BOSS_POSITION.z) >
+        p.radius + 150,
+    ),
     roadNodes: ROAD_NODES,
     supplies: SUPPLIES,
     boss: BOSS_POSITION,

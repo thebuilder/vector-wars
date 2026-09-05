@@ -1,3 +1,5 @@
+import { BossAttackDirector } from "./boss-attacks";
+import { BossHazards } from "./boss-hazards";
 import { ConvoyRoute } from "./convoys";
 import { EncounterDirector } from "./encounters";
 import { WORLDS } from "./worlds";
@@ -53,6 +55,10 @@ function simulation() {
   Object.assign(game, {
     scene,
     layout: WORLDS[0],
+    selectedOutpost: 0,
+    bossAttacks: new BossAttackDirector(),
+    bossHazards: new BossHazards(scene, terrainHeight),
+    bossWarningUntil: 0,
     convoyRoute: new ConvoyRoute(WORLDS[0]),
     dynamic: new THREE.Group(),
     encounterDirector: new EncounterDirector([]),
@@ -65,7 +71,7 @@ function simulation() {
     player: createVehicle(),
     keys: new Set(),
     audio: { effect: vi.fn(), update: vi.fn(), pause: vi.fn(), start: vi.fn() },
-    snapshot: { ...initialSnapshot, phase: "playing" },
+    snapshot: { ...initialSnapshot, phase: "playing", awaitingLaunch: false },
     onUpdate: vi.fn(),
     shots: [],
     particles: [],
@@ -92,6 +98,7 @@ function simulation() {
   });
   vi.stubGlobal("localStorage", { setItem: vi.fn() });
   cleanups.push(() => {
+    game.bossHazards.clear();
     game.effects.dispose();
     disposeObject(scene);
     game.particlesGeo.dispose();
@@ -203,6 +210,111 @@ describe("combat and aftermath simulation", () => {
       Math.hypot(game.player.x - p.x, game.player.z - p.z),
     ).toBeGreaterThanOrEqual(10.99);
     expect(game.snapshot.health).toBeLessThan(100);
+  });
+  it("protects a stationary launch until the pilot deliberately accelerates", () => {
+    const game = simulation();
+    game.snapshot.awaitingLaunch = true;
+    const before = { ...game.player };
+    advance(game, 60);
+    game.damagePlayer(50);
+    expect(game.snapshot.health).toBe(100);
+    expect(game.snapshot.elapsed).toBe(0);
+    expect(game.player).toEqual(before);
+    game.keys.add("KeyW");
+    advance(game, 1);
+    expect(game.snapshot.awaitingLaunch).toBe(false);
+    expect(game.player.z).toBeLessThan(before.z - 10);
+  });
+  it("holds the selected outpost until an explicit switch, and locks switching during a breach", () => {
+    const game = simulation();
+    game.refreshSnapshot();
+    const selected = game.snapshot.waypoint.name;
+    game.player.z = -200;
+    game.refreshSnapshot();
+    expect(game.snapshot.waypoint.name).toBe(selected);
+    game.selectNextOutpost();
+    expect(game.snapshot.waypoint.name).not.toBe(selected);
+    const next = game.selectedOutpost;
+    game.breaches[next].gate = 1;
+    game.breaches[next].remaining = 14;
+    game.selectNextOutpost();
+    expect(game.selectedOutpost).toBe(next);
+  });
+  it.each(WORLDS)(
+    "points the $name launch along the outgoing road",
+    (world) => {
+      const game = simulation();
+      game.layout = world;
+      game.player = createVehicle(world);
+      game.alignLaunchHeading();
+      const forward = new THREE.Vector3(
+        -Math.sin(game.player.heading),
+        0,
+        -Math.cos(game.player.heading),
+      );
+      const destination = new THREE.Vector3(
+        world.roadNodes[1][0] - game.player.x,
+        0,
+        world.roadNodes[1][1] - game.player.z,
+      ).normalize();
+      expect(forward.dot(destination)).toBeGreaterThan(0.7);
+    },
+  );
+  it("warns before boss fire, pauses its charge, and clears hazards on victory", () => {
+    const game = simulation();
+    game.snapshot.relays = 3;
+    const boss = game.enemies[3];
+    const player = boss.object.position
+      .clone()
+      .add(new THREE.Vector3(0, -20, 100));
+    game.updateBossAttacks(1.8, player);
+    expect(game.snapshot.bossAttack).toContain("AIM LOCKED");
+    expect(game.shots).toHaveLength(0);
+    game.pause();
+    advance(game, 10);
+    expect(game.shots).toHaveLength(0);
+    game.resume();
+    game.updateBossAttacks(1.2, player);
+    expect(game.shots).toHaveLength(5);
+    game.damageEnemy(boss, 1000);
+    expect(game.snapshot.bossAttack).toBe("");
+    expect(game.snapshot.phase).toBe("aftermath");
+  });
+  it("keeps missiles effective against armor while pulse lasers deal reduced damage", () => {
+    const game = simulation(),
+      boss = game.enemies[3];
+    game.snapshot.relays = 3;
+    boss.hp = boss.maxHp = 700;
+    game.damageEnemy(boss, 100, "laser");
+    expect(boss.hp).toBe(650);
+    game.damageEnemy(boss, 100, "missile");
+    expect(boss.hp).toBe(550);
+  });
+  it("pressures a stationary laser-firing pilot before the full-health Sentinel dies", () => {
+    const game = simulation(),
+      boss = game.enemies[3];
+    game.snapshot.relays = 3;
+    boss.hp = boss.maxHp = 700;
+    game.enemies.slice(0, 3).forEach((e: any) => {
+      e.hp = 0;
+    });
+    Object.assign(game.player, {
+      x: boss.object.position.x,
+      z: boss.object.position.z + 180,
+      y:
+        terrainHeight(boss.object.position.x, boss.object.position.z + 180) +
+        1.7,
+      heading: 0,
+    });
+    game.keys.add("KeyJ");
+    for (
+      let i = 0;
+      i < 1200 && game.snapshot.health === 100 && boss.hp > 0;
+      i++
+    )
+      game.advanceSimulation(1 / 120);
+    expect(game.snapshot.health).toBeLessThan(100);
+    expect(boss.hp).toBeGreaterThan(0);
   });
   it("provides live heading independently of the throttled HUD snapshot", () => {
     const game = simulation();

@@ -28,10 +28,13 @@ document.querySelector("#run")!.addEventListener("click", () => {
     const game = engine as any;
     cancelAnimationFrame(game.frame);
     const tick = (seconds: number) => {
+      // Controlled combat scenarios deliberately leave the protected launch state.
+      game.launch();
       for (let i = 0; i < seconds * 120; i++) game.advanceSimulation(1 / 120);
       game.refreshSnapshot();
     };
     const pose = (x: number, z: number, y?: number) => {
+      game.launch();
       Object.assign(game.player, {
         x,
         z,
@@ -73,14 +76,23 @@ document.querySelector("#run")!.addEventListener("click", () => {
       document.body.dispatchEvent(
         new KeyboardEvent("keyup", { code, bubbles: true }),
       );
+    const launchX = game.player.x,
+      launchZ = game.player.z,
+      launchHeading = game.player.heading;
     press("KeyW");
     tick(1);
     release("KeyW");
-    assert(game.player.z < 115, "Native W key accelerates the vehicle");
+    assert(
+      Math.hypot(game.player.x - launchX, game.player.z - launchZ) > 10,
+      "Native W key accelerates the vehicle along the launch route",
+    );
     press("KeyA");
     tick(0.4);
     release("KeyA");
-    assert(game.player.heading > 0.1, "Native A key steers the vehicle");
+    assert(
+      game.player.heading > launchHeading + 0.1,
+      "Native A key steers the vehicle",
+    );
     const capacitor = game.player.boost;
     press("KeyW");
     press("ShiftLeft");
@@ -321,6 +333,8 @@ document.querySelector("#run")!.addEventListener("click", () => {
       "New campaign resets sector and score",
     );
     game.invulnerable = 0;
+    game.launch();
+    game.invulnerable = 0;
     game.damagePlayer(100);
     assert(
       game.snapshot.phase === "aftermath",
@@ -363,6 +377,9 @@ for (const checkpoint of [
   "canyon",
   "ash",
   "convoy",
+  "fan",
+  "sweep",
+  "pulse",
   "reactor",
   "meltdown",
   "debris",
@@ -377,9 +394,10 @@ for (const checkpoint of [
     });
     const game = engine as any;
     cancelAnimationFrame(game.frame);
-    if (checkpoint === "canyon" || checkpoint === "ash")
-      game.loadLevel(checkpoint === "canyon" ? 1 : 2);
+    if (["canyon", "ash", "sweep", "pulse"].includes(checkpoint))
+      game.loadLevel(checkpoint === "canyon" || checkpoint === "sweep" ? 1 : 2);
     engine.start();
+    game.launch();
     game.deployment = 1.6;
     const isOutpost = ["outpost", "switchback", "canyon", "ash"].includes(
       checkpoint,
@@ -427,6 +445,24 @@ for (const checkpoint of [
       game.cameraPosition.copy(player).addScaledVector(forward, -18);
       game.cameraPosition.y += 12;
       game.cameraLook.copy(transport.object.position);
+    }
+    if (["fan", "sweep", "pulse"].includes(checkpoint)) {
+      game.snapshot.relays = 3;
+      game.bossVisual.shield.visible = false;
+      game.invulnerable = 999;
+      const boss = game.enemies.find((e: any) => e.kind === "boss");
+      game.player.x = boss.object.position.x;
+      game.player.z = boss.object.position.z + 100;
+      game.player.y =
+        terrainHeight(game.player.x, game.player.z, game.layout) + 1.7;
+      game.cameraPosition.set(
+        game.player.x + 20,
+        game.player.y + 30,
+        game.player.z + 25,
+      );
+      game.cameraLook.copy(boss.object.position);
+      const seconds = checkpoint === "pulse" ? 4.2 : 2;
+      for (let i = 0; i < seconds * 120; i++) game.advanceSimulation(1 / 120);
     }
     game.renderScene(1 / 60);
     game.composer.render();

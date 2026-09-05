@@ -21,6 +21,10 @@ export interface Blip {
 }
 export interface Snapshot {
   phase: Phase;
+  awaitingLaunch: boolean;
+  missionGate: number;
+  airborne: boolean;
+  bossAttack: string;
   level: number;
   health: number;
   boost: number;
@@ -129,6 +133,10 @@ export const WEAPONS: {
 ];
 export const initialSnapshot: Snapshot = {
   phase: "ready",
+  awaitingLaunch: true,
+  missionGate: 0,
+  airborne: false,
+  bossAttack: "",
   level: 0,
   health: 100,
   boost: 100,

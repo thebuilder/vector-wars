@@ -1,3 +1,10 @@
+import {
+  PILLARS,
+  RAMPS,
+  WORLD_CENTER_Z,
+  WORLD_RADIUS,
+  type Ramp,
+} from "./layout";
 export interface VehicleState {
   x: number;
   y: number;
@@ -17,18 +24,16 @@ export interface DriveInput {
   boost: boolean;
   jump: boolean;
 }
-export const WORLD_LIMIT = 340;
-export const ramps = [
-  { x: 0, z: 65, width: 16, length: 26, height: 8 },
-  { x: -112, z: -75, width: 20, length: 28, height: 10 },
-  { x: 102, z: -65, width: 18, length: 26, height: 9 },
-];
+export const WORLD_LIMIT = WORLD_RADIUS;
+export const ramps = RAMPS;
+export const HOVER_HEIGHT = 1.7;
+export const VEHICLE_RADIUS = 2.2;
 export function terrainHeight(x: number, z: number): number {
-  const r = Math.hypot(x, z + 50);
+  const r = Math.hypot(x, z - WORLD_CENTER_Z);
   const rolling =
     Math.sin(x * 0.019) * Math.sin(z * 0.015) * 2.2 +
     Math.sin(z * 0.034 + x * 0.008) * 1.3;
-  const mountains = Math.max(0, r - 330) / 160;
+  const mountains = Math.max(0, r - 980) / 160;
   return (
     rolling +
     Math.min(1.8, mountains) *
@@ -37,12 +42,21 @@ export function terrainHeight(x: number, z: number): number {
         40 * Math.sin(x * 0.026 - z * 0.019) ** 2)
   );
 }
+export function rampHeight(ramp: Ramp, z: number) {
+  const t = Math.max(
+    0,
+    Math.min(1, (ramp.z + ramp.length / 2 - z) / ramp.length),
+  );
+  const low = terrainHeight(ramp.x, ramp.z + ramp.length / 2);
+  const high = terrainHeight(ramp.x, ramp.z - ramp.length / 2) + ramp.height;
+  return low + (high - low) * t;
+}
 export function surfaceHeight(x: number, z: number): number {
   let h = terrainHeight(x, z);
   for (const ramp of ramps) {
     const t = (ramp.z + ramp.length / 2 - z) / ramp.length;
     if (Math.abs(x - ramp.x) < ramp.width / 2 && t >= 0 && t <= 1)
-      h = Math.max(h, terrainHeight(ramp.x, ramp.z) + t * ramp.height);
+      h = Math.max(h, rampHeight(ramp, z));
   }
   return h;
 }
@@ -66,6 +80,8 @@ export function stepVehicle(
   dt: number,
 ): { impact: number; boosting: boolean; landed: boolean } {
   const wasAirborne = v.airborne;
+  const previous = { x: v.x, y: v.y, z: v.z };
+  let impact = 0;
   const speed = Math.hypot(v.vx, v.vz);
   const boosting = input.boost && v.boost > 1 && input.throttle > 0;
   v.boost = Math.max(0, Math.min(100, v.boost + (boosting ? -28 : 14) * dt));
@@ -92,29 +108,37 @@ export function stepVehicle(
   v.vz *= drag;
   v.x += v.vx * dt;
   v.z += v.vz * dt;
-  const floor = surfaceHeight(v.x, v.z) + 1.7;
+  impact += resolveWorldContacts(v, previous);
+  const floor = surfaceHeight(v.x, v.z) + HOVER_HEIGHT;
   if (input.jump && !v.airborne) {
     v.vy = 17;
     v.y += 0.25;
   }
   const displacement = floor - v.y;
-  if (displacement > -1.2 && v.vy < 6)
-    v.vy += (displacement * 95 - v.vy * 12 + 24) * dt;
+  const onRamp = ramps.some(
+    (r) =>
+      Math.abs(v.x - r.x) < r.width / 2 && Math.abs(v.z - r.z) < r.length / 2,
+  );
+  const followingDeck = onRamp && !wasAirborne && !input.jump;
+  const supportVelocity = followingDeck
+    ? (floor - surfaceHeight(previous.x, previous.z) - HOVER_HEIGHT) / dt
+    : 0;
+  if (displacement > -1.2 && (v.vy < 6 || followingDeck))
+    v.vy += (displacement * 95 - (v.vy - supportVelocity) * 12 + 24) * dt;
   v.vy -= 24 * dt;
   v.y += v.vy * dt;
-  v.airborne = v.y > floor + 0.8 || v.vy > 6;
-  let impact = 0;
+  v.airborne = v.y > floor + 0.8 || (v.vy > 6 && !followingDeck);
   if (v.y < floor - 0.55) {
-    impact = Math.max(0, -v.vy - 24);
+    impact += Math.max(0, -v.vy - 24);
     v.y = floor - 0.55;
     v.vy = Math.max(0, v.vy) * 0.25;
   }
-  const dist = Math.hypot(v.x, v.z + 50);
+  const dist = Math.hypot(v.x, v.z - WORLD_CENTER_Z);
   if (dist > WORLD_LIMIT) {
     const nx = v.x / dist,
-      nz = (v.z + 50) / dist;
+      nz = (v.z - WORLD_CENTER_Z) / dist;
     v.x = nx * WORLD_LIMIT;
-    v.z = nz * WORLD_LIMIT - 50;
+    v.z = nz * WORLD_LIMIT + WORLD_CENTER_Z;
     const outward = v.vx * nx + v.vz * nz;
     if (outward > 0) {
       v.vx -= nx * outward * 1.5;
@@ -124,6 +148,116 @@ export function stepVehicle(
   }
   return { impact, boosting, landed: wasAirborne && !v.airborne };
 }
+/** Resolve solid sides before sampling suspension support. A low side impact must
+ * never turn into a landing on the wedge's deck. */
+export function resolveWorldContacts(
+  v: VehicleState,
+  previous: { x: number; y: number; z: number },
+): number {
+  let impact = 0;
+  const bounce = (nx: number, nz: number) => {
+    const closing = v.vx * nx + v.vz * nz;
+    if (closing < 0) {
+      v.vx -= nx * closing * 1.3;
+      v.vz -= nz * closing * 1.3;
+      impact += Math.max(0, -closing - 8) * 0.24;
+    }
+  };
+  for (const ramp of ramps) {
+    const left = ramp.x - ramp.width / 2,
+      right = ramp.x + ramp.width / 2;
+    const back = ramp.z - ramp.length / 2,
+      front = ramp.z + ramp.length / 2;
+    const r = VEHICLE_RADIUS;
+    if (
+      v.x <= left - r ||
+      v.x >= right + r ||
+      v.z <= back - r ||
+      v.z >= front + r
+    )
+      continue;
+    const deck = rampHeight(ramp, v.z);
+    const prevDeck = rampHeight(ramp, previous.z);
+    const wasSupported =
+      previous.x >= left &&
+      previous.x <= right &&
+      previous.z >= back &&
+      previous.z <= front &&
+      previous.y >= prevDeck + 0.9;
+    // Approach from above or follow a deck already supporting the suspension.
+    if (v.y >= deck + 0.95 || wasSupported) continue;
+    if (previous.x <= left - r) {
+      v.x = left - r;
+      bounce(-1, 0);
+    } else if (previous.x >= right + r) {
+      v.x = right + r;
+      bounce(1, 0);
+    } else if (previous.z <= back - r) {
+      v.z = back - r;
+      bounce(0, -1);
+    } else if (previous.z >= front - r) {
+      v.z = front + r;
+      bounce(0, 1);
+    } else {
+      const distances = [v.x - (left - r), right + r - v.x, v.z - (back - r)];
+      const side = distances.indexOf(Math.min(...distances));
+      if (side === 0) {
+        v.x = left - r;
+        bounce(-1, 0);
+      } else if (side === 1) {
+        v.x = right + r;
+        bounce(1, 0);
+      } else {
+        v.z = back - r;
+        bounce(0, -1);
+      }
+    }
+  }
+  for (const pillar of PILLARS) {
+    const ground = terrainHeight(pillar.x, pillar.z);
+    if (v.y - 0.7 > ground + pillar.height || v.y + 0.7 < ground) continue;
+    const dx = v.x - pillar.x,
+      dz = v.z - pillar.z,
+      dist = Math.hypot(dx, dz);
+    const radius = pillar.radius + VEHICLE_RADIUS;
+    if (dist >= radius) continue;
+    const nx = dist > 0.001 ? dx / dist : 1,
+      nz = dist > 0.001 ? dz / dist : 0;
+    v.x = pillar.x + nx * radius;
+    v.z = pillar.z + nz * radius;
+    bounce(nx, nz);
+  }
+  return impact;
+}
+
+/** Horizontal hover-body contact transfers momentum and preserves separation. */
+export function separateVehicles(
+  player: VehicleState,
+  other: { x: number; y: number; z: number; vx: number; vz: number },
+  radius = 5.5,
+): number {
+  if (Math.abs(player.y - other.y) > 5) return 0;
+  const dx = player.x - other.x,
+    dz = player.z - other.z,
+    d = Math.hypot(dx, dz);
+  if (d >= radius) return 0;
+  const nx = d > 0.001 ? dx / d : Math.cos(player.heading),
+    nz = d > 0.001 ? dz / d : -Math.sin(player.heading);
+  const overlap = radius - d;
+  player.x += nx * overlap * 0.4;
+  player.z += nz * overlap * 0.4;
+  other.x -= nx * overlap * 0.6;
+  other.z -= nz * overlap * 0.6;
+  const closing = (player.vx - other.vx) * nx + (player.vz - other.vz) * nz;
+  if (closing >= 0) return 0;
+  const impulse = -closing * 0.7;
+  player.vx += nx * impulse * 0.7;
+  player.vz += nz * impulse * 0.7;
+  other.vx -= nx * impulse;
+  other.vz -= nz * impulse;
+  return -closing;
+}
+
 export function segmentHitsSphere(
   ax: number,
   ay: number,

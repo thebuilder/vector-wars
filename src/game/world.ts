@@ -1,6 +1,15 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { terrainHeight, ramps } from "./physics";
+import { terrainHeight, ramps, rampHeight } from "./physics";
+
+import {
+  PILLARS,
+  OUTPOSTS,
+  WORLD_RADIUS,
+  WORLD_CENTER_Z,
+} from "./layout";
+
+import { sampleRoad } from "./roads";
 
 export const COLORS = {
   mint: 0x86fadd,
@@ -75,41 +84,17 @@ export function glow(
   return sprite;
 }
 function createSun(scene: THREE.Scene) {
-  const geometry = new THREE.PlaneGeometry(220, 220);
-  const material = new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
-    fog: false,
-    vertexShader:
-      "varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
-    fragmentShader: `varying vec2 vUv;
-      void main(){ vec2 p=vUv-.5; float d=length(p); if(d>.5) discard;
-      float bands=step(.28,fract((vUv.y+.015)*18.)); if(vUv.y<.55 && bands<.5) discard;
-      vec3 col=mix(vec3(1.,.16,.32),vec3(1.,.77,.43),smoothstep(.1,1.,vUv.y));
-      gl_FragColor=vec4(col, .96); }`,
-  });
-  const sun = new THREE.Mesh(geometry, material);
-  sun.position.set(-100, 145, -590);
-  scene.add(sun);
-  const halo = new THREE.Mesh(
-    new THREE.PlaneGeometry(500, 500),
-    new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      vertexShader:
-        "varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}",
-      fragmentShader:
-        "varying vec2 vUv; void main(){float a=pow(max(0.,1.-length(vUv-.5)*2.),4.); gl_FragColor=vec4(.8,.15,.18,a*.32);}",
-    }),
+  // A distant, fixed-size light on the horizon rather than an arena prop.
+  const sun = new THREE.Mesh(
+    new THREE.CircleGeometry(105, 64),
+    new THREE.MeshBasicMaterial({ color: 0xe98e7b, fog: false }),
   );
-  halo.position.copy(sun.position);
-  halo.position.z -= 1;
-  scene.add(halo);
+  sun.position.set(-1100, 230, -2750);
+  scene.add(sun);
 }
 function createSky(scene: THREE.Scene) {
   const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(1500, 24, 16),
+    new THREE.SphereGeometry(3900, 24, 16),
     new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
@@ -129,7 +114,7 @@ function createSky(scene: THREE.Scene) {
   for (let i = 0; i < 1600; i++) {
     const theta = random() * Math.PI * 2,
       y = random() * 0.92 + 0.02,
-      radius = 1250;
+      radius = 3200;
     points.push(
       Math.cos(theta) * Math.sqrt(1 - y * y) * radius,
       y * radius,
@@ -157,8 +142,9 @@ function createSky(scene: THREE.Scene) {
   createSun(scene);
 }
 function createTerrain(scene: THREE.Scene) {
-  const geo = new THREE.PlaneGeometry(1900, 1900, 170, 170);
+  const geo = new THREE.PlaneGeometry(3100, 3100, 240, 240);
   geo.rotateX(-Math.PI / 2);
+  geo.translate(0, 0, WORLD_CENTER_Z);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++)
     pos.setY(i, terrainHeight(pos.getX(i), pos.getZ(i)));
@@ -186,122 +172,81 @@ function createTerrain(scene: THREE.Scene) {
   );
   wire.position.y = 0.015;
   scene.add(wire);
-  const grid = new THREE.GridHelper(1000, 100, 0x4db49f, 0x255957);
+  const grid = new THREE.GridHelper(2400, 160, 0x4db49f, 0x255957);
   grid.position.y = -1.3;
   (grid.material as THREE.Material).transparent = true;
   (grid.material as THREE.Material).opacity = 0.25;
   scene.add(grid);
 }
 function createRoad(scene: THREE.Scene) {
-  const nodes = [
-    [0, 125],
-    [38, 70],
-    [105, -25],
-    [93, -122],
-    [20, -211],
-    [-104, -160],
-    [-138, -54],
-    [-88, 52],
-  ];
-  const path = new THREE.CatmullRomCurve3(
-    nodes.map(([x, z]) => new THREE.Vector3(x, 0, z)),
-    true,
-    "catmullrom",
-    0.35,
-  );
-  const vertices: number[] = [],
-    indices: number[] = [],
-    left: THREE.Vector3[] = [],
-    right: THREE.Vector3[] = [];
-  const samples = 360;
-  for (let i = 0; i <= samples; i++) {
-    const p = path.getPoint(i / samples),
-      t = path.getTangent(i / samples),
-      n = new THREE.Vector3(-t.z, 0, t.x);
-    const l = p.clone().addScaledVector(n, 10),
-      r = p.clone().addScaledVector(n, -10);
-    l.y = terrainHeight(l.x, l.z) + 0.2;
-    r.y = terrainHeight(r.x, r.z) + 0.2;
-    left.push(l);
-    right.push(r);
-    vertices.push(l.x, l.y, l.z, r.x, r.y, r.z);
-    if (i < samples) {
-      const a = i * 2;
-      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+  const samples=sampleRoad();
+  const vertices:number[]=[],indices:number[]=[];
+  const edges=[[],[]] as number[][];
+  samples.forEach((sample,i)=>{
+    const {p,t,left,right,normal,gap}=sample;
+    vertices.push(left.x,left.y,left.z,right.x,right.y,right.z);
+    [left,right].forEach((edge,index)=>{
+      const a=edge.clone().addScaledVector(normal,.12),b=edge.clone().addScaledVector(normal,-.12);
+      edges[index].push(a.x,a.y+.02,a.z,b.x,b.y+.02,b.z);
+    });
+    if(i<samples.length-1 && !gap && !samples[i+1].gap) {
+      const a=i*2;indices.push(a,a+1,a+2,a+1,a+3,a+2);
     }
-    if (i % 5 === 0) {
-      const dash = new THREE.Mesh(
-        new THREE.BoxGeometry(0.22, 0.04, 2.4),
-        new THREE.MeshBasicMaterial({ color: 0x78b4b1 }),
-      );
-      dash.position.set(p.x, terrainHeight(p.x, p.z) + 0.23, p.z);
-      dash.rotation.y = Math.atan2(t.x, t.z);
-      scene.add(dash);
+    if(i%8===0&&!gap) {
+      const dash=new THREE.Mesh(new THREE.BoxGeometry(.22,.04,3),new THREE.MeshBasicMaterial({color:0x78b4b1}));
+      dash.position.copy(p);dash.rotation.y=Math.atan2(t.x,t.z);scene.add(dash);
     }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
-  geo.setIndex(indices);
-  geo.computeVertexNormals();
-  scene.add(
-    new THREE.Mesh(
-      geo,
-      new THREE.MeshStandardMaterial({
-        color: 0x11101f,
-        metalness: 0.65,
-        roughness: 0.5,
-        side: THREE.DoubleSide,
-      }),
-    ),
-  );
-  for (const edge of [left, right])
-    scene.add(
-      new THREE.Mesh(
-        new THREE.TubeGeometry(
-          new THREE.CatmullRomCurve3(edge),
-          360,
-          0.085,
-          4,
-          false,
-        ),
-        new THREE.MeshBasicMaterial({ color: 0xff527d }),
-      ),
-    );
-  for (let i = 0; i < 24; i++) {
-    const p = path.getPoint(i / 24),
-      t = path.getTangent(i / 24),
-      n = new THREE.Vector3(-t.z, 0, t.x);
-    for (const side of [-1, 1]) {
-      const post = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, 1.6, 0.12),
-        new THREE.MeshBasicMaterial({ color: i % 3 ? 0x86fadd : 0xff5b82 }),
-      );
-      post.position.set(
-        p.x + n.x * 12 * side,
-        terrainHeight(p.x + n.x * 12 * side, p.z + n.z * 12 * side) + 0.8,
-        p.z + n.z * 12 * side,
-      );
-      scene.add(post);
-    }
-  }
+  });
+  [vertices,...edges].forEach((positions,index)=>{
+    const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setIndex(indices);geometry.computeVertexNormals();
+    const material=index===0?new THREE.MeshStandardMaterial({color:0x161522,metalness:.45,roughness:.6,side:THREE.DoubleSide}):new THREE.MeshBasicMaterial({color:0xff527d,side:THREE.DoubleSide});
+    scene.add(new THREE.Mesh(geometry,material));
+  });
 }
 function createRamps(scene: THREE.Scene) {
   for (const ramp of ramps) {
     const w = ramp.width / 2,
       l = ramp.length / 2,
-      h = ramp.height;
+      h = rampHeight(ramp, ramp.z - l) - rampHeight(ramp, ramp.z + l);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute(
       "position",
       new THREE.Float32BufferAttribute(
-        [-w, 0, l, w, 0, l, -w, h, -l, w, h, -l],
+        [
+          -w,
+          0,
+          l,
+          w,
+          0,
+          l,
+          -w,
+          h,
+          -l,
+          w,
+          h,
+          -l,
+          -w,
+          -3,
+          -l,
+          w,
+          -3,
+          -l,
+          -w,
+          -3,
+          l,
+          w,
+          -3,
+          l,
+        ],
         3,
       ),
     );
-    geo.setIndex([0, 2, 1, 1, 2, 3]);
+    geo.setIndex([
+      0, 2, 1, 1, 2, 3, 0, 4, 6, 0, 2, 4, 1, 5, 3, 1, 7, 5, 2, 5, 4, 2, 3, 5,
+    ]);
     geo.computeVertexNormals();
     const g = outlined(geo, 0x86fadd, 0x112b2b);
-    g.position.set(ramp.x, terrainHeight(ramp.x, ramp.z) + 0.25, ramp.z);
+    g.position.set(ramp.x, rampHeight(ramp, ramp.z + l), ramp.z);
     scene.add(g);
     for (let i = 1; i < 7; i++) {
       const t = i / 7;
@@ -320,49 +265,75 @@ function createRamps(scene: THREE.Scene) {
   }
 }
 function createScenery(scene: THREE.Scene) {
-  for (let i = 0; i < 45; i++) {
-    const angle = i * 2.39996,
-      radius = 230 + Math.sin(i * 13) * 45,
-      x = Math.cos(angle) * radius,
-      z = Math.sin(angle) * radius - 50;
-    const h = 5 + (Math.sin(i * 17) + 1) * 12;
+  PILLARS.forEach((p, i) => {
     const rock = outlined(
-      new THREE.ConeGeometry(5 + (i % 5), h, 4, 1),
-      i % 3 ? 0x225d64 : 0x5c375f,
-      0x0b0e19,
+      new THREE.CylinderGeometry(p.radius, p.radius, p.height, 6),
+      i % 3 ? 0x326b6b : 0x815579,
+      0x0d141d,
       0.8,
     );
-    rock.position.set(x, terrainHeight(x, z) + h / 2, z);
-    rock.rotation.y = i;
+    rock.position.set(p.x, terrainHeight(p.x, p.z) + p.height / 2, p.z);
     scene.add(rock);
-  }
-  // A pair of enormous, distant broadcast pylons frames the arena.
-  for (const x of [-240, 245]) {
-    const tower = outlined(
-      new THREE.CylinderGeometry(1, 5, 70, 4, 8, true),
-      0x35635f,
-      0x08100f,
-    );
-    tower.position.set(x, terrainHeight(x, -230) + 35, -230);
-    scene.add(tower);
-    const hoop = ring(10, 0x6b466c, 0.15);
-    hoop.position.set(x, tower.position.y + 37, -230);
-    scene.add(hoop);
-  }
-  const bounds = new THREE.Mesh(
-    new THREE.TorusGeometry(342, 0.2, 4, 180),
-    new THREE.MeshBasicMaterial({
-      color: 0x6c4e8d,
-      transparent: true,
-      opacity: 0.5,
-    }),
-  );
+    if (p.height > 30) {
+      const cap = ring(p.radius + 1.5, 0xff5b82, 0.15);
+      cap.rotation.x = Math.PI / 2;
+      cap.position.set(p.x, terrainHeight(p.x, p.z) + p.height, p.z);
+      scene.add(cap);
+    }
+  });
+  OUTPOSTS.forEach((site, i) => {
+    const pad = ring(60, [0xffbc57, 0xb890ff, 0x86fadd][i], 0.24);
+    pad.rotation.x = -Math.PI / 2;
+    pad.position.set(site.x, terrainHeight(site.x, site.z) + 0.4, site.z);
+    scene.add(pad);
+    // Concentric lines give each defended compound a visible territorial footprint.
+    const outer = ring(64, 0x455c68, 0.08);
+    outer.rotation.copy(pad.rotation);
+    outer.position.copy(pad.position);
+    scene.add(outer);
+  });
+  const bounds = ring(WORLD_RADIUS, 0x6c4e8d, 0.3);
   bounds.rotation.x = Math.PI / 2;
-  bounds.position.set(0, 2, -50);
+  bounds.position.set(0, 2, WORLD_CENTER_Z);
   scene.add(bounds);
 }
+
+/** Three physical markers communicate the breach order in world space. */
+export function createBreachGates() {
+  return OUTPOSTS.map((site) =>
+    site.gates.map((gate, index) => {
+      const group = new THREE.Group();
+      group.position.set(
+        gate.x,
+        terrainHeight(gate.x, gate.z) + gate.altitude,
+        gate.z,
+      );
+      const hoop = ring(gate.airborne ? 8 : 12, 0xffbc57, 0.22);
+      group.add(hoop);
+      const canvas = document.createElement("canvas");
+      canvas.width = 128;
+      canvas.height = 64;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#ffcf8a";
+      ctx.font = "bold 38px monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(index === 2 ? "JUMP" : `0${index + 1}`, 64, 45);
+      const label = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: new THREE.CanvasTexture(canvas),
+          transparent: true,
+          depthWrite: false,
+        }),
+      );
+      label.position.y = gate.airborne ? 11 : 16;
+      label.scale.set(11, 5.5, 1);
+      group.add(label);
+      return group;
+    }),
+  );
+}
 export function createWorld(scene: THREE.Scene) {
-  scene.fog = new THREE.FogExp2(0x080d16, 0.0018);
+  scene.fog = new THREE.FogExp2(0x080d16, 0.00085);
   scene.add(new THREE.HemisphereLight(0x9fbfd2, 0x272033, 2));
   const light = new THREE.DirectionalLight(0xffb8b0, 2.8);
   light.position.set(-100, 160, -100);
@@ -464,58 +435,75 @@ export function createRelay(index: number, texture: THREE.Texture) {
   );
   beam.position.y = 60;
   group.add(beam);
+  const shield = new THREE.Mesh(
+    new THREE.CylinderGeometry(9, 9, 24, 12, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0x86fadd,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false,
+    }),
+  );
+  shield.name = "relay-shield";
+  shield.position.y = 11;
+  group.add(shield);
   group.userData.index = index;
   return group;
 }
 export function createBoss(texture: THREE.Texture, color: number) {
   const group = new THREE.Group();
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 256;
-  const ctx = canvas.getContext("2d")!;
-  for (let y = 0; y < 8; y++)
-    for (let x = 0; x < 12; x++) {
-      ctx.fillStyle =
-        (x + y) % 2 ? "#141323" : new THREE.Color(color).getStyle();
-      ctx.fillRect((x * 256) / 12, y * 32, 256 / 12 + 1, 32);
-    }
-  const map = new THREE.CanvasTexture(canvas);
-  map.magFilter = THREE.NearestFilter;
-  map.colorSpace = THREE.SRGBColorSpace;
   const core = new THREE.Mesh(
-    new THREE.SphereGeometry(12, 32, 24),
+    new THREE.OctahedronGeometry(10, 0),
     new THREE.MeshStandardMaterial({
-      map,
-      metalness: 0.5,
-      roughness: 0.3,
+      color: 0x3b2635,
       emissive: color,
-      emissiveIntensity: 0.15,
+      emissiveIntensity: 0.65,
+      metalness: 0.7,
+      roughness: 0.3,
     }),
   );
   group.add(core);
   const cage = new THREE.LineSegments(
-    new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(18, 1)),
-    new THREE.LineBasicMaterial({
-      color: 0x548984,
-      transparent: true,
-      opacity: 0.45,
-    }),
+    new THREE.EdgesGeometry(new THREE.OctahedronGeometry(12)),
+    new THREE.LineBasicMaterial({ color: 0xffdba4 }),
   );
   group.add(cage);
-  for (let i = 0; i < 3; i++) {
-    const orbit = ring(20 + i * 2, i % 2 ? COLORS.mint : color, 0.13);
-    orbit.rotation.set(0.8 + i * 0.4, 0.3 + i * 0.8, i * 0.9);
-    group.add(orbit);
+  const hull = outlined(new THREE.BoxGeometry(38, 5, 25), color, 0x111724);
+  hull.position.y = -12;
+  group.add(hull);
+  for (const side of [-1, 1]) {
+    const pontoon = outlined(new THREE.BoxGeometry(8, 12, 38), color, 0x15212b);
+    pontoon.position.set(side * 20, -9, 0);
+    group.add(pontoon);
+    for (const z of [-14, 14]) {
+      const turret = outlined(
+        new THREE.CylinderGeometry(2, 4, 9, 6),
+        color,
+        0x231725,
+      );
+      turret.position.set(side * 20, 1, z);
+      group.add(turret);
+      const muzzle = glow(color, 7, texture);
+      muzzle.position.set(side * 20, 6, z);
+      group.add(muzzle);
+    }
+    const strut = outlined(new THREE.BoxGeometry(3, 25, 3), 0x718f97, 0x182331);
+    strut.position.set(side * 13, 1, 0);
+    strut.rotation.z = side * -0.25;
+    group.add(strut);
   }
-  const eye = glow(0xffffff, 9, texture);
-  eye.position.set(0, 2, 11.7);
-  group.add(eye);
+  const field = ring(14, color, 0.3);
+  field.rotation.x = Math.PI / 2;
+  field.position.y = -4;
+  group.add(field);
   const shield = new THREE.Mesh(
-    new THREE.SphereGeometry(25, 24, 16),
+    new THREE.IcosahedronGeometry(32, 2),
     new THREE.MeshBasicMaterial({
       color: COLORS.mint,
       wireframe: true,
       transparent: true,
-      opacity: 0.07,
+      opacity: 0.09,
       depthWrite: false,
     }),
   );

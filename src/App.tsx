@@ -34,6 +34,7 @@ import {
 import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
 import { Progress } from "./components/ui/progress";
+import { Compass } from "./components/Compass";
 import { Radar } from "./components/Radar";
 import { GameDialog } from "./components/GameDialog";
 
@@ -131,7 +132,7 @@ export default function App() {
   const [engineReady, setEngineReady] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const menu = state.phase === "ready",
-    active = state.phase === "playing",
+    active = state.phase === "playing" || state.phase === "aftermath",
     level = LEVELS[state.level];
   useEffect(() => {
     if (!host.current) return;
@@ -427,7 +428,7 @@ export default function App() {
           >
             {state.relays === 3 ? "✓" : "01"}
           </span>
-          <span>Destroy shield relays</span>
+          <span>Breach & destroy outposts</span>
           <b>{state.relays}/3</b>
         </div>
         <div className="objective-row">
@@ -458,6 +459,11 @@ export default function App() {
             className={state.bossShielded ? "shield-icon" : ""}
           />
         </div>
+        {!menu && (
+          <div className="breach-summary">
+            {state.breached}/3 SHIELDS BREACHED <span>2.1 KM SECTOR</span>
+          </div>
+        )}
         <div className="mission-footer">
           <span className="signal-dot" />
           {state.bossShielded ? "CORE SHIELDED" : "CORE EXPOSED"}
@@ -512,25 +518,72 @@ export default function App() {
               <span>WEAPONS FREE</span>
             )}
           </div>
-          <div className="bearing" aria-hidden="true">
-            <span>330</span>
-            <i />
-            <span>345</span>
-            <i />
-            <strong>
-              {Math.round(
-                ((((state.heading * -180) / Math.PI) % 360) + 360) % 360,
-              )
-                .toString()
-                .padStart(3, "0")}
-              °
-            </strong>
-            <i />
-            <span>015</span>
-            <i />
-            <span>030</span>
-            <b>⌄</b>
+          <Compass heading={state.heading} />
+          <div
+            className={`navigation-cue ${state.breachTime > 0 ? "breaching" : ""}`}
+          >
+            <span
+              className="navigation-arrow"
+              style={{
+                transform: `rotate(${Math.atan2(state.waypoint.x - state.x, -(state.waypoint.z - state.z)) + state.heading}rad)`,
+              }}
+            >
+              ↑
+            </span>
+            <div>
+              <small>{state.waypoint.detail}</small>
+              <strong>
+                {state.waypoint.name} <b>{state.waypoint.distance} M</b>
+              </strong>
+            </div>
+            {state.breachTime > 0 && (
+              <span className="breach-clock">
+                {state.breachTime.toFixed(1)}
+                <small>SEC / {state.breachGate + 1} OF 3</small>
+              </span>
+            )}
           </div>
+          <div
+            className="hull-impact"
+            aria-hidden="true"
+            style={{ opacity: state.hitPulse * (settings.effects ? 1 : 0.35) }}
+          />
+          <div
+            className="damage-direction"
+            aria-hidden="true"
+            style={{
+              opacity: state.hitPulse,
+              transform: `translate(-50%,-50%) rotate(${state.hitDirection}rad)`,
+            }}
+          >
+            <span />
+          </div>
+          <div
+            className="hit-confirmation"
+            aria-hidden="true"
+            style={{ opacity: state.hitConfirm }}
+          >
+            ×
+          </div>
+          {state.killText && (
+            <div className="kill-confirmation" role="status">
+              {state.killText}
+            </div>
+          )}
+          {state.phase === "aftermath" && (
+            <div className="aftermath-banner" role="status">
+              <span>
+                {state.health > 0 ? "REACTOR MELTDOWN" : "SIGNAL LOST"}
+              </span>
+              <strong>
+                {state.health > 0
+                  ? state.aftermathTime < 3.5
+                    ? "CORE DESTABILIZING"
+                    : "SECTOR SECURED"
+                  : "HULL DESTROYED"}
+              </strong>
+            </div>
+          )}
           <div className="transmission" role="status">
             <Radio size={14} />
             <span>{state.message}</span>
@@ -782,9 +835,13 @@ export default function App() {
           <div className="manual-tip">
             <Sparkles size={17} />
             <p>
-              Destroy the three pink relays to expose the boss. Green caches
-              repair your hull and refill ammunition. Ramps launch you; drift
-              carries momentum around corners.
+              Each outpost has an amber breach route. Pass gates 01 and 02, then
+              take the ramp through the airborne JUMP coupler within 14 seconds.
+              Keep at least 90 km/h through the jump. Boost between gates and
+              drift through the turn. A breach permanently exposes that relay;
+              destroy all three to unlock the reactor. Green caches repair and
+              resupply. Break away at speed when surrounded, or leave mines for
+              pursuers.
             </p>
           </div>
           <Button

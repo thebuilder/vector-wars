@@ -1,6 +1,8 @@
+import { WORLD_CENTER_Z, WORLD_RADIUS, createRoadCurve } from "../game/layout";
 import type { Snapshot } from "../game/types";
+const roadPath = createRoadCurve().getSpacedPoints(400);
 export function Radar({ state }: { state: Snapshot }) {
-  const scale = 0.31;
+  const scale = 76 / WORLD_RADIUS;
   return (
     <div
       className="radar"
@@ -9,9 +11,9 @@ export function Radar({ state }: { state: Snapshot }) {
       <div className="radar-heading">
         <span>
           <i className="led" />
-          LOCAL SCAN
+          SECTOR SCAN
         </span>
-        <span>650 M</span>
+        <span>2.1 KM</span>
       </div>
       <svg
         viewBox="0 0 220 180"
@@ -51,7 +53,14 @@ export function Radar({ state }: { state: Snapshot }) {
         />
         <path d="M110 10v168M26 94h168" stroke="#86fadd" strokeOpacity=".13" />
         <path
-          d="M110 148C142 132 151 106 144 77S111 29 87 49 63 93 79 124Z"
+          d={
+            roadPath
+              .map(
+                ({ x, z }, i) =>
+                  `${i ? "L" : "M"}${110 + x * scale} ${94 + (z - WORLD_CENTER_Z) * scale}`,
+              )
+              .join(" ") + "Z"
+          }
           fill="none"
           stroke="#86fadd"
           strokeOpacity=".22"
@@ -72,7 +81,7 @@ export function Radar({ state }: { state: Snapshot }) {
           .filter((b) => b.alive)
           .map((b, i) => {
             const x = 110 + b.x * scale,
-              y = 94 + (b.z + 50) * scale;
+              y = 94 + (b.z - WORLD_CENTER_Z) * scale;
             return b.kind === "repair" ? (
               <path
                 key={i}
@@ -95,13 +104,15 @@ export function Radar({ state }: { state: Snapshot }) {
                 y={y - 3}
                 width="6"
                 height="6"
-                fill={b.kind === "boss" ? "#ffbc57" : "#ff5b82"}
+                fill={
+                  b.kind === "boss" || b.kind === "gate" ? "#ffbc57" : "#ff5b82"
+                }
                 transform={`rotate(45 ${x} ${y})`}
               />
             );
           })}
         <g
-          transform={`translate(${110 + state.x * scale} ${94 + (state.z + 50) * scale}) rotate(${(-state.heading * 180) / Math.PI})`}
+          transform={`translate(${110 + state.x * scale} ${94 + (state.z - WORLD_CENTER_Z) * scale}) rotate(${(-state.heading * 180) / Math.PI})`}
         >
           <path d="m0-5 3.5 8L0 1l-3.5 2Z" fill="#d9ffef" />
           <circle r="8" stroke="#d9ffef" strokeOpacity=".25" fill="none" />

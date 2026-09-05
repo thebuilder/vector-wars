@@ -1,5 +1,11 @@
 export type Phase =
-  "ready" | "playing" | "paused" | "won" | "lost" | "complete";
+  | "ready"
+  | "aftermath"
+  | "playing"
+  | "paused"
+  | "won"
+  | "lost"
+  | "complete";
 export type Weapon = "laser" | "missile" | "mine";
 export interface Settings {
   sound: boolean;
@@ -10,7 +16,7 @@ export interface Settings {
 export interface Blip {
   x: number;
   z: number;
-  kind: "relay" | "boss" | "drone" | "repair";
+  kind: "relay" | "boss" | "drone" | "repair" | "gate";
   alive: boolean;
 }
 export interface Snapshot {
@@ -41,6 +47,22 @@ export interface Snapshot {
   targetHealth: number;
   targetLocked: boolean;
   fps: number;
+  hitPulse: number;
+  hitDirection: number;
+  hitConfirm: number;
+  killText: string;
+  waypoint: {
+    name: string;
+    detail: string;
+    x: number;
+    y: number;
+    z: number;
+    distance: number;
+  };
+  breachTime: number;
+  breachGate: number;
+  breached: number;
+  aftermathTime: number;
 }
 export const LEVELS = [
   {
@@ -51,7 +73,7 @@ export const LEVELS = [
     drones: 8,
     bossHealth: 700,
     description:
-      "A dead frequency. A live target. Silence the Sentinel before it calls for reinforcements.",
+      "Three outposts. One reactor. Follow the amber breach gates, jump the coupler, then destroy each exposed relay.",
   },
   {
     name: "GHOST CIRCUIT",
@@ -131,4 +153,20 @@ export const initialSnapshot: Snapshot = {
   targetHealth: 0,
   targetLocked: false,
   fps: 60,
+  hitPulse: 0,
+  hitDirection: 0,
+  hitConfirm: 0,
+  killText: "",
+  waypoint: {
+    name: "DUSTWORKS",
+    detail: "BREACH APPROACH",
+    x: -515,
+    y: 3,
+    z: 285,
+    distance: 539,
+  },
+  breachTime: 0,
+  breachGate: 0,
+  breached: 0,
+  aftermathTime: 0,
 };

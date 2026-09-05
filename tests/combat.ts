@@ -3,6 +3,7 @@
  * Private access is confined to this fixture; the game exposes no cheats or debug globals.
  */
 import { GameEngine } from "../src/game/engine";
+import { OUTPOSTS, BOSS_POSITION } from "../src/game/layout";
 import { terrainHeight } from "../src/game/physics";
 import * as THREE from "three";
 const output = document.querySelector("#results")!;
@@ -26,7 +27,7 @@ document.querySelector("#run")!.addEventListener("click", () => {
     const game = engine as any;
     cancelAnimationFrame(game.frame);
     const tick = (seconds: number) => {
-      for (let i = 0; i < seconds * 120; i++) game.step(1 / 120);
+      for (let i = 0; i < seconds * 120; i++) game.advanceSimulation(1 / 120);
       game.refreshSnapshot();
     };
     const pose = (x: number, z: number, y?: number) => {
@@ -39,6 +40,7 @@ document.querySelector("#run")!.addEventListener("click", () => {
         vz: 0,
         heading: 0,
         steer: 0,
+        airborne: false,
       });
       game.invulnerable = 0;
     };
@@ -111,7 +113,7 @@ document.querySelector("#run")!.addEventListener("click", () => {
     cancelAnimationFrame(game.frame);
     const firstBoss = game.enemies.find((e: any) => e.kind === "boss");
     const originalBossHealth = firstBoss.hp;
-    pose(0, -115);
+    pose(BOSS_POSITION.x, BOSS_POSITION.z + 70);
     game.snapshot.weapon = "laser";
     game.target = firstBoss;
     for (let i = 0; i < 20; i++) {
@@ -199,8 +201,29 @@ document.querySelector("#run")!.addEventListener("click", () => {
           e.hp = 0;
           e.object.visible = false;
         });
-      for (const relay of game.enemies.filter((e: any) => e.kind === "relay"))
+      for (const relay of game.enemies.filter((e: any) => e.kind === "relay")) {
+        game.damageEnemy(relay, 500);
+        assert(
+          relay.hp === relay.maxHp,
+          "Outpost shield blocks damage before breach",
+        );
+        const site = OUTPOSTS[relay.phase];
+        for (const [index, gate] of site.gates.entries()) {
+          pose(gate.x, gate.z, terrainHeight(gate.x, gate.z) + gate.altitude);
+          game.player.airborne = gate.airborne;
+          game.player.vz = gate.airborne ? -65 : 0;
+          game.step(1 / 120);
+          assert(
+            game.breaches[relay.phase].gate === index + 1,
+            `Breach gate ${index + 1} registers in order`,
+          );
+        }
+        assert(
+          game.breaches[relay.phase].breached,
+          "Airborne coupler exposes relay",
+        );
         fireAt(relay);
+      }
       assert(
         game.snapshot.relays === 3 && !game.bossVisual.shield.visible,
         `Sector ${level + 1}: all relays disable the boss shield`,
@@ -208,8 +231,22 @@ document.querySelector("#run")!.addEventListener("click", () => {
       const boss = game.enemies.find((e: any) => e.kind === "boss");
       fireAt(boss);
       assert(
+        game.snapshot.phase === "aftermath" && boss.object.visible,
+        "Boss remains visible during the meltdown",
+      );
+      tick(1);
+      engine.pause();
+      const elapsed = game.snapshot.aftermathTime;
+      tick(10);
+      assert(
+        game.snapshot.aftermathTime === elapsed,
+        "Pause freezes the meltdown timer",
+      );
+      engine.resume();
+      tick(6.1);
+      assert(
         game.snapshot.phase === "won",
-        `Sector ${level + 1}: defeating the boss completes the mission`,
+        `Sector ${level + 1}: victory follows the visible meltdown`,
       );
       assert(game.snapshot.score > 0, "Victory awards a score");
       engine.nextLevel();
@@ -232,9 +269,11 @@ document.querySelector("#run")!.addEventListener("click", () => {
     game.invulnerable = 0;
     game.damagePlayer(100);
     assert(
-      game.snapshot.phase === "lost",
-      "Lethal damage enters the defeat state",
+      game.snapshot.phase === "aftermath",
+      "Lethal damage first shows the wreckage",
     );
+    tick(3.1);
+    assert(game.snapshot.phase === "lost", "Defeat appears after the wreckage");
     engine.restart();
     cancelAnimationFrame(game.frame);
     assert(
@@ -262,3 +301,55 @@ document.querySelector("#run")!.addEventListener("click", () => {
     else localStorage.setItem("vector-wars-best", originalBest);
   }
 });
+
+// Repeatable visual checkpoints. This fixture is not shipped in the production build.
+for (const checkpoint of [
+  "outpost",
+  "switchback",
+  "reactor",
+  "meltdown",
+  "debris",
+]) {
+  document.querySelector(`#${checkpoint}`)!.addEventListener("click", () => {
+    engine?.dispose();
+    engine = new GameEngine(document.querySelector("#stage")!, () => {}, {
+      sound: false,
+      music: false,
+      effects: true,
+      quality: "high",
+    });
+    const game = engine as any;
+    cancelAnimationFrame(game.frame);
+    engine.start();
+    const isOutpost = checkpoint === "outpost" || checkpoint === "switchback";
+    const site = isOutpost
+      ? OUTPOSTS[checkpoint === "switchback" ? 1 : 0]
+      : BOSS_POSITION;
+    Object.assign(game.player, {
+      x: site.x,
+      z: site.z + (isOutpost ? 270 : 125),
+      y: terrainHeight(site.x, site.z + 125) + 1.7,
+      heading: 0,
+    });
+    game.cameraPosition.set(
+      site.x + 12,
+      terrainHeight(site.x, site.z + 125) + 18,
+      site.z + (isOutpost ? 300 : 150),
+    );
+    game.cameraLook.set(site.x, 12, site.z);
+    if (checkpoint === "meltdown" || checkpoint === "debris") {
+      game.snapshot.relays = 3;
+      game.bossVisual.shield.visible = false;
+      game.damageEnemy(
+        game.enemies.find((e: any) => e.kind === "boss"),
+        10000,
+      );
+      const seconds = checkpoint === "meltdown" ? 2.2 : 3.8;
+      for (let i = 0; i < seconds * 120; i++) game.advanceSimulation(1 / 120);
+    }
+    game.renderScene(1 / 60);
+    game.composer.render();
+    output.textContent = `Visual checkpoint: ${checkpoint}. Phase: ${game.snapshot.phase}. Meltdown: ${game.snapshot.aftermathTime.toFixed(1)}s. Use the main game for interactive play.`;
+    engine.pause();
+  });
+}

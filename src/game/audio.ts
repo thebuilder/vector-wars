@@ -62,7 +62,16 @@ export class GameAudio {
   }
   effect(
     kind:
-      "laser" | "missile" | "mine" | "hit" | "explosion" | "pickup" | "jump",
+      | "laser"
+      | "missile"
+      | "mine"
+      | "hit"
+      | "explosion"
+      | "pickup"
+      | "jump"
+      | "confirm"
+      | "breach"
+      | "alarm",
   ) {
     if (!this.sound) return;
     const notes = {
@@ -73,7 +82,41 @@ export class GameAudio {
       explosion: [80, 0.55, 0.4, 18],
       pickup: [660, 0.35, 0.18, 1320],
       jump: [180, 0.25, 0.12, 500],
+      confirm: [1300, 0.045, 0.07, 750],
+      breach: [440, 0.6, 0.22, 1760],
+      alarm: [240, 0.4, 0.2, 120],
     };
+    if (
+      (kind === "explosion" || kind === "hit") &&
+      this.context &&
+      this.master
+    ) {
+      const duration = kind === "explosion" ? 0.7 : 0.13;
+      const buffer = this.context.createBuffer(
+        1,
+        this.context.sampleRate * duration,
+        this.context.sampleRate,
+      );
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++)
+        data[i] = (Math.random() * 2 - 1) * (1 - i / data.length) ** 2;
+      const source = this.context.createBufferSource();
+      source.buffer = buffer;
+      const filter = this.context.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = kind === "explosion" ? 600 : 1800;
+      const gain = this.context.createGain();
+      gain.gain.value = kind === "explosion" ? 0.8 : 0.3;
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.master);
+      source.start();
+      source.onended = () => {
+        source.disconnect();
+        filter.disconnect();
+        gain.disconnect();
+      };
+    }
     const [f, d, v, end] = notes[kind];
     this.tone(f, d, v, kind === "pickup" ? "sine" : "sawtooth", end);
   }

@@ -9,10 +9,12 @@ import {
   stepVehicle,
   terrainHeight,
   segmentHitsSphere,
+  separateVehicles,
   type VehicleState,
 } from "./physics";
 import {
   createWorld,
+  createBreachGates,
   createShip,
   createRelay,
   createBoss,
@@ -31,6 +33,10 @@ import {
   type Phase,
 } from "./types";
 
+import { OUTPOSTS, BOSS_POSITION, SUPPLIES } from "./layout";
+import { createBreaches, advanceBreaches } from "./mission";
+import { CombatEffects } from "./effects";
+
 type Enemy = {
   kind: "relay" | "boss" | "drone";
   object: THREE.Group;
@@ -40,6 +46,9 @@ type Enemy = {
   cooldown: number;
   home: THREE.Vector3;
   phase: number;
+  velocity?: THREE.Vector3;
+  deathAge?: number;
+  hitUntil?: number;
 };
 type Shot = {
   object: THREE.Mesh;
@@ -60,23 +69,6 @@ type Particle = {
 };
 type Pickup = { object: THREE.Group; active: boolean; cooldown: number };
 const UP = new THREE.Vector3(0, 1, 0);
-const RELAY_POSITIONS = [
-  [
-    [-95, -30],
-    [105, -95],
-    [-65, -195],
-  ],
-  [
-    [-145, -100],
-    [140, -15],
-    [45, -225],
-  ],
-  [
-    [-160, -130],
-    [140, -130],
-    [0, 5],
-  ],
-];
 const KEY_CODES = new Set([
   "KeyW",
   "KeyA",
@@ -103,7 +95,15 @@ const KEY_CODES = new Set([
 
 export class GameEngine {
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1800);
+  private effects = new CombatEffects(this.scene);
+  private breaches = createBreaches();
+  private gates: THREE.Group[][] = [];
+  private resumePhase: "playing" | "aftermath" = "playing";
+  private aftermathOutcome: "won" | "lost" = "won";
+  private meltdownBurst = false;
+  private killUntil = 0;
+  private confirmSoundAt = 0;
+  private camera = new THREE.PerspectiveCamera(62, 1, 0.1, 4700);
   private renderer: THREE.WebGLRenderer;
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
@@ -216,6 +216,14 @@ export class GameEngine {
   }
   private loadLevel(level: number) {
     this.sectorStartScore = this.snapshot.score;
+    this.effects.clear();
+    this.breaches = createBreaches();
+    this.meltdownBurst = false;
+    this.resumePhase = "playing";
+    this.shake = 0;
+    this.killUntil = 0;
+    this.messageUntil = 0;
+    this.confirmSoundAt = 0;
     this.shots.forEach((s) => this.scene.remove(s.object));
     this.shots = [];
     this.particles.forEach((p) => {
@@ -225,7 +233,8 @@ export class GameEngine {
     this.particles = [];
     // Dynamic enemy materials share the global glow map, so keep that texture alive.
     this.dynamic.traverse((o) => {
-      if (o instanceof THREE.Sprite) o.material.map = null;
+      if (o instanceof THREE.Sprite && o.material.map === this.texture)
+        o.material.map = null;
     });
     disposeObject(this.dynamic);
     this.dynamic.clear();
@@ -246,7 +255,9 @@ export class GameEngine {
       bossHealth: LEVELS[level].bossHealth,
       enemies: LEVELS[level].drones,
     };
-    RELAY_POSITIONS[level].forEach(([x, z], i) => {
+    this.gates = createBreachGates();
+    this.gates.flat().forEach((g) => this.dynamic.add(g));
+    OUTPOSTS.forEach(({ x, z }, i) => {
       const object = createRelay(i, this.texture);
       object.position.set(x, terrainHeight(x, z), z);
       this.dynamic.add(object);
@@ -266,7 +277,11 @@ export class GameEngine {
       new THREE.Color(LEVELS[level].color).getHex(),
     );
     this.bossVisual = boss;
-    boss.group.position.set(0, 34, -185);
+    boss.group.position.set(
+      BOSS_POSITION.x,
+      terrainHeight(BOSS_POSITION.x, BOSS_POSITION.z) + 22,
+      BOSS_POSITION.z,
+    );
     this.dynamic.add(boss.group);
     this.enemies.push({
       kind: "boss",
@@ -284,7 +299,7 @@ export class GameEngine {
       const object = createDrone(this.texture);
       object.position.set(
         home.x + Math.cos(a) * 22,
-        7,
+        terrainHeight(home.x, home.z) + 4,
         home.z + Math.sin(a) * 22,
       );
       this.dynamic.add(object);
@@ -299,12 +314,7 @@ export class GameEngine {
         phase: a,
       });
     }
-    for (const [x, z] of [
-      [-30, 60],
-      [115, 35],
-      [-150, -125],
-      [60, -230],
-    ]) {
+    for (const [x, z] of SUPPLIES) {
       const object = new THREE.Group();
       const box = new THREE.Mesh(
         new THREE.OctahedronGeometry(2),
@@ -326,6 +336,7 @@ export class GameEngine {
       this.dynamic.add(object);
       this.pickups.push({ object, active: true, cooldown: 0 });
     }
+    this.updateGates();
     this.ship.root.position.set(this.player.x, this.player.y, this.player.z);
     this.ship.root.rotation.set(0, 0, 0);
     this.cameraPosition.set(15, 10, 145);
@@ -342,11 +353,19 @@ export class GameEngine {
     this.keys.clear();
     this.snapshot.phase = "playing";
     this.audio.start();
-    this.message("DESTROY THE 3 SHIELD RELAYS", 6);
+    this.message(
+      "FOLLOW AMBER GATES. BOOST, DRIFT, JUMP TO BREACH EACH OUTPOST.",
+      8,
+    );
     this.emit();
   }
   pause() {
-    if (this.snapshot.phase !== "playing") return;
+    if (
+      this.snapshot.phase !== "playing" &&
+      this.snapshot.phase !== "aftermath"
+    )
+      return;
+    this.resumePhase = this.snapshot.phase;
     this.snapshot.phase = "paused";
     this.keys.clear();
     this.mouseFire = false;
@@ -355,7 +374,7 @@ export class GameEngine {
   }
   resume() {
     if (this.snapshot.phase !== "paused") return;
-    this.snapshot.phase = "playing";
+    this.snapshot.phase = this.resumePhase;
     this.keys.clear();
     this.audio.start();
     this.emit();
@@ -403,7 +422,11 @@ export class GameEngine {
       return;
     if (event.code === "Escape") {
       event.preventDefault();
-      if (this.snapshot.phase === "playing") this.pause();
+      if (
+        this.snapshot.phase === "playing" ||
+        this.snapshot.phase === "aftermath"
+      )
+        this.pause();
       else if (this.snapshot.phase === "paused") this.resume();
       return;
     }
@@ -416,7 +439,11 @@ export class GameEngine {
       this.start();
       return;
     }
-    if (this.snapshot.phase !== "playing") return;
+    if (
+      this.snapshot.phase !== "playing" &&
+      this.snapshot.phase !== "aftermath"
+    )
+      return;
     if (KEY_CODES.has(event.code)) event.preventDefault();
     this.keys.add(event.code);
     if (!event.repeat) {
@@ -479,17 +506,7 @@ export class GameEngine {
     this.previous = now;
     this.snapshot.fps +=
       (1 / Math.max(0.001, rawDt) - this.snapshot.fps) * 0.05;
-    if (this.snapshot.phase === "playing") {
-      this.accumulator += dt;
-      while (this.accumulator >= 1 / 120) {
-        this.step(1 / 120);
-        this.accumulator -= 1 / 120;
-        if (this.snapshot.phase !== "playing") {
-          this.accumulator = 0;
-          break;
-        }
-      }
-    } else this.accumulator = 0;
+    this.advanceSimulation(dt);
     if (this.snapshot.phase === "ready") this.time += dt;
     this.renderScene(dt);
     this.uiTime += dt;
@@ -501,9 +518,37 @@ export class GameEngine {
     this.composer.render();
     this.frame = requestAnimationFrame(this.animate);
   };
+  private advanceSimulation(dt: number) {
+    if (
+      this.snapshot.phase === "playing" ||
+      this.snapshot.phase === "aftermath"
+    ) {
+      this.accumulator += dt;
+      while (this.accumulator >= 1 / 120) {
+        this.step(1 / 120);
+        this.accumulator -= 1 / 120;
+        if (
+          this.snapshot.phase !== "playing" &&
+          this.snapshot.phase !== "aftermath"
+        ) {
+          this.accumulator = 0;
+          break;
+        }
+      }
+    } else this.accumulator = 0;
+  }
   private step(dt: number) {
     this.time += dt;
-    this.snapshot.elapsed += dt;
+    if (this.snapshot.phase === "playing") this.snapshot.elapsed += dt;
+    this.snapshot.hitPulse = Math.max(0, this.snapshot.hitPulse - dt * 1.8);
+    this.snapshot.hitConfirm = Math.max(0, this.snapshot.hitConfirm - dt * 3);
+    if (this.time > this.killUntil) this.snapshot.killText = "";
+    const previousPosition = {
+      x: this.player.x,
+      y: this.player.y,
+      z: this.player.z,
+    };
+    const wasAirborne = this.player.airborne;
     this.fireCooldown -= dt;
     this.jumpCooldown -= dt;
     this.invulnerable -= dt;
@@ -526,12 +571,13 @@ export class GameEngine {
       },
       dt,
     );
-    if (jump) {
+    if (jump && !wasAirborne) {
       this.jumpCooldown = 1.1;
       this.audio.effect("jump");
     }
     if (result.landed) {
-      this.shake = Math.min(0.3, Math.abs(this.player.vy) * 0.008);
+      this.shake = 0.18;
+      this.audio.effect("hit");
       if (Math.hypot(this.player.vx, this.player.vz) > 30) {
         this.snapshot.score += 25;
         this.message("CLEAN LANDING +25", 1.5);
@@ -547,6 +593,39 @@ export class GameEngine {
       this.player.y,
       this.player.z,
     );
+    this.effects.update(dt);
+    this.updateWrecks(dt);
+    if (this.snapshot.phase === "aftermath") {
+      this.updateAftermath(dt);
+      this.updateParticles(dt);
+      return;
+    }
+    for (const event of advanceBreaches(
+      this.breaches,
+      previousPosition,
+      this.player,
+      dt,
+    )) {
+      const name = OUTPOSTS[event.site].name;
+      if (event.kind === "breached") {
+        this.snapshot.score += 500;
+        this.player.boost = 100;
+        this.audio.effect("breach");
+        this.message(`${name} SHIELD BREACHED +500. DESTROY THE RELAY.`, 5);
+        this.effects.burst(playerPos, 1);
+      } else if (event.kind === "expired")
+        this.message(`${name}: LINK EXPIRED. RETURN TO GATE 01.`, 4);
+      else {
+        this.audio.effect("pickup");
+        this.message(
+          event.kind === "started"
+            ? `${name}: 14 SECONDS. FOLLOW 02, THEN JUMP THE COUPLER.`
+            : "FINAL GATE: TAKE THE RAMP. KEEP YOUR SPEED ABOVE 90 KM/H.",
+          4,
+        );
+      }
+    }
+    this.updateGates();
     this.findTarget(playerPos);
     if (
       (keys.has("KeyJ") || keys.has("KeyF") || this.mouseFire) &&
@@ -563,7 +642,7 @@ export class GameEngine {
           ? "SHIELD DOWN. FINISH THE " +
             LEVELS[this.snapshot.level].boss.replace("THE ", "") +
             "."
-          : "HUNT THE RELAYS. BREAK THE SHIELD.";
+          : "FOLLOW THE AMBER BREACH ROUTE. EXPOSE THE RELAY.";
   }
   private findTarget(position: THREE.Vector3) {
     const forward = new THREE.Vector3(
@@ -575,7 +654,7 @@ export class GameEngine {
     this.target = undefined;
     for (const enemy of this.enemies) {
       if (enemy.hp <= 0) continue;
-      if (enemy.kind === "boss" && this.snapshot.relays < 3) continue;
+      if (this.isShielded(enemy)) continue;
       const point = this.aimPoint(enemy);
       const direction = point.sub(position);
       const distance = direction.length();
@@ -593,10 +672,11 @@ export class GameEngine {
   }
   private aimPoint(enemy: Enemy): THREE.Vector3 {
     const p = enemy.object.position.clone();
-    if (enemy.kind === "relay") p.y += 10;
+    if (enemy.kind === "relay") p.y += 14;
     return p;
   }
   private fire(position: THREE.Vector3) {
+    if (this.snapshot.phase !== "playing") return;
     const weapon = this.snapshot.weapon;
     if (
       (weapon === "missile" && this.snapshot.missiles <= 0) ||
@@ -671,35 +751,44 @@ export class GameEngine {
       const p = enemy.object.position;
       const distance = p.distanceTo(player);
       if (enemy.kind === "drone") {
-        let destination: THREE.Vector3;
-        if (distance < 140) {
-          const a = this.time * 0.6 + enemy.phase;
-          destination = new THREE.Vector3(
-            player.x + Math.cos(a) * 19,
-            player.y + 3 + Math.sin(a) * 2,
-            player.z + Math.sin(a) * 19,
-          );
-        } else
-          destination = new THREE.Vector3(
-            enemy.home.x + Math.cos(this.time * 0.3 + enemy.phase) * 24,
-            terrainHeight(p.x, p.z) + 7,
-            enemy.home.z + Math.sin(this.time * 0.3 + enemy.phase) * 24,
-          );
-        const delta = destination.sub(p);
-        const move = Math.min(
-          delta.length(),
-          (this.snapshot.level * 2 + 17) * dt,
+        const engaged = distance < 165 && enemy.home.distanceTo(player) < 240;
+        const a = this.time * 0.42 + enemy.phase;
+        const center = engaged ? player : enemy.home;
+        const destination = new THREE.Vector3(
+          center.x + Math.cos(a) * (engaged ? 27 : 36),
+          0,
+          center.z + Math.sin(a) * (engaged ? 27 : 36),
         );
-        p.addScaledVector(delta.normalize(), move);
+        destination.y =
+          terrainHeight(destination.x, destination.z) + 3.4 + Math.sin(a) * 0.6;
+        const velocity = (enemy.velocity ??= new THREE.Vector3());
+        const desired = destination.sub(p);
+        const remaining = desired.length();
+        desired
+          .normalize()
+          .multiplyScalar(
+            Math.min(
+              remaining * 2,
+              engaged ? 35 + this.snapshot.level * 3 : 15,
+            ),
+          );
+        velocity.lerp(desired, 1 - Math.exp(-2.4 * dt));
+        p.addScaledVector(velocity, dt);
+        const body = { x: p.x, y: p.y, z: p.z, vx: velocity.x, vz: velocity.z };
+        const contact = separateVehicles(this.player, body, 6);
+        p.x = body.x;
+        p.z = body.z;
+        velocity.x = body.vx;
+        velocity.z = body.vz;
+        if (contact > 8) {
+          this.damagePlayer(Math.min(18, contact * 0.25), p);
+          this.explode(p, 0xffbd87, 8);
+        }
         enemy.object.lookAt(player);
         enemy.object.rotation.z = Math.sin(this.time * 2 + enemy.phase) * 0.15;
-        if (distance < 5) {
-          this.damagePlayer(8);
-          p.addScaledVector(p.clone().sub(player).normalize(), 5);
-        }
       }
       if (enemy.kind === "boss")
-        p.y = enemy.home.y + Math.sin(this.time * 0.7) * 3;
+        p.y = enemy.home.y + Math.sin(this.time * 0.7) * 0.6;
       const range =
         enemy.kind === "boss" ? 210 : enemy.kind === "relay" ? 105 : 90;
       if (enemy.cooldown <= 0 && distance < range) {
@@ -742,26 +831,32 @@ export class GameEngine {
           (enemy.kind === "boss" ? 1.6 : enemy.kind === "relay" ? 3 : 2.3) -
           this.snapshot.level * 0.2;
       }
-      if (
-        enemy.kind === "relay" &&
-        Math.hypot(p.x - player.x, p.z - player.z) < 7 &&
-        player.y < p.y + 14
-      ) {
-        const normal = new THREE.Vector3(
-          player.x - p.x,
-          0,
-          player.z - p.z,
-        ).normalize();
-        this.player.x = p.x + normal.x * 7.2;
-        this.player.z = p.z + normal.z * 7.2;
-        this.player.vx += normal.x * 12;
-        this.player.vz += normal.z * 12;
-        this.damagePlayer(6);
+      if (enemy.kind !== "drone") {
+        const radius = enemy.kind === "relay" ? 8 : 29;
+        const dx = this.player.x - p.x,
+          dz = this.player.z - p.z,
+          d = Math.hypot(dx, dz);
+        if (
+          d < radius &&
+          this.player.y < p.y + (enemy.kind === "relay" ? 20 : 8)
+        ) {
+          const nx = d > 0.001 ? dx / d : 1,
+            nz = d > 0.001 ? dz / d : 0;
+          this.player.x = p.x + nx * radius;
+          this.player.z = p.z + nz * radius;
+          const closing = this.player.vx * nx + this.player.vz * nz;
+          if (closing < 0) {
+            this.player.vx -= nx * closing * 1.3;
+            this.player.vz -= nz * closing * 1.3;
+            this.damagePlayer(Math.max(2, -closing * 0.25), p);
+          }
+        }
       }
     }
   }
   private updateShots(dt: number, player: THREE.Vector3) {
     for (let i = this.shots.length - 1; i >= 0; i--) {
+      if (this.snapshot.phase !== "playing") break;
       const shot = this.shots[i];
       shot.ttl -= dt;
       shot.age += dt;
@@ -779,6 +874,12 @@ export class GameEngine {
       }
       shot.object.position.addScaledVector(shot.velocity, dt);
       const p = shot.object.position;
+      if (
+        !shot.mine &&
+        (shot.target || shot.hostile) &&
+        Math.floor(shot.age * 20) !== Math.floor((shot.age - dt) * 20)
+      )
+        this.explode(p, shot.hostile ? 0xff5b82 : 0xffbc57, 1);
       if (shot.mine) {
         shot.object.rotation.y += dt * 2;
         shot.object.scale.setScalar(1 + Math.sin(this.time * 8) * 0.1);
@@ -810,7 +911,7 @@ export class GameEngine {
             2.1,
           )
         ) {
-          this.damagePlayer(shot.damage);
+          this.damagePlayer(shot.damage, prev);
           shot.ttl = 0;
         }
       } else {
@@ -851,63 +952,216 @@ export class GameEngine {
       }
     }
   }
+  private isShielded(enemy: Enemy) {
+    return enemy.kind === "boss"
+      ? this.snapshot.relays < 3
+      : enemy.kind === "relay"
+        ? !this.breaches[enemy.phase].breached
+        : false;
+  }
   private damageEnemy(enemy: Enemy, damage: number) {
     if (enemy.hp <= 0) return;
-    if (enemy.kind === "boss" && this.snapshot.relays < 3) {
-      this.message("CORE SHIELDED. DESTROY THE RELAYS.", 2);
+    if (this.isShielded(enemy)) {
+      this.message(
+        enemy.kind === "boss"
+          ? "CORE SHIELDED. DESTROY THE THREE RELAYS."
+          : `${OUTPOSTS[enemy.phase].name}: RUN THE AMBER GATES TO BREAK THIS SHIELD.`,
+        2,
+      );
+      this.explode(this.aimPoint(enemy), 0x86fadd, 5);
       return;
     }
     enemy.hp = Math.max(0, enemy.hp - damage);
-    if (enemy.hp <= 0) {
-      enemy.object.visible = false;
-      this.explode(
-        this.aimPoint(enemy),
-        enemy.kind === "drone" ? 0xff5b82 : 0xffbc57,
-        enemy.kind === "drone" ? 18 : 65,
+    enemy.hitUntil = this.time + 0.14;
+    this.snapshot.hitConfirm = 1;
+    if (this.time > this.confirmSoundAt) {
+      this.audio.effect("confirm");
+      this.confirmSoundAt = this.time + 0.1;
+    }
+    if (enemy.hp > 0) return;
+    enemy.deathAge = 0;
+    this.snapshot.score +=
+      enemy.kind === "drone" ? 150 : enemy.kind === "relay" ? 1000 : 5000;
+    this.snapshot.killText =
+      enemy.kind === "drone"
+        ? "INTERCEPTOR DESTROYED +150"
+        : enemy.kind === "relay"
+          ? "RELAY DESTROYED +1000"
+          : "REACTOR CRITICAL +5000";
+    this.killUntil = this.time + 2.5;
+    this.audio.effect("explosion");
+    this.shake = enemy.kind === "drone" ? 0.25 : 0.65;
+    this.explode(
+      this.aimPoint(enemy),
+      0xffbd87,
+      enemy.kind === "drone" ? 24 : 60,
+    );
+    this.effects.burst(this.aimPoint(enemy), enemy.kind === "drone" ? 1 : 3);
+    if (enemy.kind === "relay") {
+      this.snapshot.relays++;
+      this.snapshot.health = Math.min(100, this.snapshot.health + 15);
+      this.snapshot.missiles += 4;
+      this.snapshot.mines += 2;
+      this.message(
+        this.snapshot.relays === 3
+          ? "ALL OUTPOSTS SILENCED. REACTOR EXPOSED."
+          : `${OUTPOSTS[enemy.phase].name} CLEARED. REPAIRED AND RESUPPLIED.`,
+        5,
       );
-      this.audio.effect("explosion");
-      this.shake = enemy.kind === "drone" ? 0.15 : 0.6;
-      this.snapshot.score +=
-        enemy.kind === "drone" ? 150 : enemy.kind === "relay" ? 1000 : 5000;
-      if (enemy.kind === "relay") {
-        this.snapshot.relays++;
-        this.snapshot.health = Math.min(100, this.snapshot.health + 15);
-        this.snapshot.missiles += 4;
-        this.snapshot.mines += 2;
-        this.message(
-          this.snapshot.relays === 3
-            ? "ALL RELAYS DOWN. CORE EXPOSED."
-            : `RELAY ${this.snapshot.relays}/3 DESTROYED. AMMO REPLENISHED.`,
-          4,
-        );
-        if (this.bossVisual)
-          this.bossVisual.shield.visible = this.snapshot.relays < 3;
-      }
-      if (enemy.kind === "boss") {
-        this.snapshot.score += Math.max(
-          0,
-          Math.round(3000 - this.snapshot.elapsed * 5),
-        );
-        this.setPhase("won");
-        this.saveBest();
-      }
-    } else this.audio.effect("hit");
+      if (this.bossVisual)
+        this.bossVisual.shield.visible = this.snapshot.relays < 3;
+    }
+    if (enemy.kind === "boss") {
+      this.snapshot.score += Math.max(
+        0,
+        Math.round(3000 - this.snapshot.elapsed * 5),
+      );
+      this.beginAftermath("won");
+      this.message("REACTOR CRITICAL. KEEP MOVING — MELTDOWN IN PROGRESS.", 8);
+    }
   }
-  private damagePlayer(amount: number) {
-    if (this.invulnerable > 0) return;
+  private damagePlayer(amount: number, source?: THREE.Vector3) {
+    if (this.invulnerable > 0 || this.snapshot.phase !== "playing") return;
     this.snapshot.health = Math.max(0, this.snapshot.health - amount);
     this.invulnerable = 0.45;
-    this.shake = 0.25;
+    this.snapshot.hitPulse = 1;
+    if (source)
+      this.snapshot.hitDirection =
+        Math.atan2(source.x - this.player.x, -(source.z - this.player.z)) +
+        this.player.heading;
+    this.shake = 0.5;
     this.audio.effect("hit");
+    this.explode(
+      new THREE.Vector3(this.player.x, this.player.y, this.player.z),
+      0xffa97f,
+      9,
+    );
     if (this.snapshot.health <= 0) {
-      this.explode(
+      this.effects.burst(
         new THREE.Vector3(this.player.x, this.player.y, this.player.z),
-        0xff5b82,
-        60,
+        2,
       );
-      this.setPhase("lost");
+      this.beginAftermath("lost");
+      this.message("HULL BREACH. SIGNAL LOST.", 4);
+    }
+  }
+  private beginAftermath(outcome: "won" | "lost") {
+    this.aftermathOutcome = outcome;
+    this.snapshot.aftermathTime = 0;
+    this.snapshot.phase = "aftermath";
+    this.mouseFire = false;
+    this.emit();
+  }
+  private updateAftermath(dt: number) {
+    this.shots.forEach((s) => this.scene.remove(s.object));
+    this.shots = [];
+    const before = this.snapshot.aftermathTime;
+    this.snapshot.aftermathTime += dt;
+    const time = this.snapshot.aftermathTime;
+    const boss = this.enemies.find((e) => e.kind === "boss");
+    if (this.aftermathOutcome === "won" && boss) {
+      if (time < 3.5 && Math.floor(time * 4) !== Math.floor(before * 4)) {
+        const p = boss.object.position
+          .clone()
+          .add(
+            new THREE.Vector3(
+              (Math.random() - 0.5) * 30,
+              Math.random() * 16,
+              (Math.random() - 0.5) * 24,
+            ),
+          );
+        this.explode(p, 0xffcf8a, 20);
+        this.effects.burst(p, 0.6);
+        this.shake = 0.35;
+        this.audio.effect("alarm");
+      }
+      if (time >= 3.5 && !this.meltdownBurst) {
+        this.meltdownBurst = true;
+        boss.object.visible = false;
+        this.effects.burst(boss.object.position, 7);
+        this.explode(boss.object.position, 0xfff1bf, 110);
+        this.shake = 1.4;
+        this.audio.effect("explosion");
+        this.message("SIGNAL TERMINATED. SECTOR SECURED.", 4);
+      }
+    }
+    if (time >= (this.aftermathOutcome === "won" ? 7 : 3)) {
+      this.setPhase(this.aftermathOutcome);
       this.saveBest();
     }
+  }
+  private updateWrecks(dt: number) {
+    for (const enemy of this.enemies) {
+      if (enemy.hitUntil !== undefined) {
+        const flashing = enemy.hitUntil > this.time;
+        enemy.object.traverse((o) => {
+          if (
+            o instanceof THREE.Mesh &&
+            o.material instanceof THREE.MeshStandardMaterial
+          ) {
+            const m = o.material;
+            if (m.userData.originalEmission === undefined) {
+              m.userData.originalEmission = m.emissiveIntensity;
+              m.userData.originalColor = m.emissive.getHex();
+            }
+            m.emissiveIntensity = flashing ? 2 : m.userData.originalEmission;
+            m.emissive.setHex(flashing ? 0xffa377 : m.userData.originalColor);
+          }
+        });
+        if (!flashing) enemy.hitUntil = undefined;
+      }
+      if (enemy.deathAge === undefined || !enemy.object.visible) continue;
+      enemy.deathAge += dt;
+      if (enemy.kind === "boss") {
+        enemy.object.rotation.z =
+          Math.sin(enemy.deathAge * 14) * 0.018 * enemy.deathAge;
+        continue;
+      }
+      enemy.object.position.y -= enemy.deathAge * 12 * dt;
+      enemy.object.rotation.z += dt * (enemy.kind === "drone" ? 3 : 0.6);
+      enemy.object.rotation.x += dt * 0.6;
+      if (
+        Math.floor(enemy.deathAge * 15) !==
+        Math.floor((enemy.deathAge - dt) * 15)
+      )
+        this.explode(enemy.object.position, 0xff9055, 2);
+      if (
+        enemy.deathAge > 1.5 ||
+        enemy.object.position.y <
+          terrainHeight(enemy.object.position.x, enemy.object.position.z)
+      ) {
+        this.effects.burst(
+          enemy.object.position,
+          enemy.kind === "drone" ? 1 : 2,
+        );
+        enemy.object.visible = false;
+      }
+    }
+  }
+  private updateGates() {
+    this.gates.forEach((gates, index) =>
+      gates.forEach((g, i) => {
+        const state = this.breaches[index];
+        g.visible = !state.breached && i >= state.gate;
+        const material = (
+          g.children[0] as THREE.Mesh<
+            THREE.TorusGeometry,
+            THREE.MeshBasicMaterial
+          >
+        ).material;
+        material.color.setHex(i === state.gate ? 0xffbc57 : 0x5c6767);
+        g.scale.setScalar(
+          i === state.gate ? 1 + Math.sin(this.time * 3) * 0.025 : 1,
+        );
+      }),
+    );
+    this.enemies
+      .filter((e) => e.kind === "relay")
+      .forEach((e) => {
+        const shield = e.object.getObjectByName("relay-shield");
+        if (shield)
+          shield.visible = !this.breaches[e.phase].breached && e.hp > 0;
+      });
   }
   private saveBest() {
     this.snapshot.best = Math.max(this.snapshot.best, this.snapshot.score);
@@ -983,7 +1237,9 @@ export class GameEngine {
   private renderScene(dt: number) {
     const p = this.player,
       ready = this.snapshot.phase === "ready",
-      playing = this.snapshot.phase === "playing";
+      playing =
+        this.snapshot.phase === "playing" ||
+        this.snapshot.phase === "aftermath";
     this.ship.root.position.set(
       ready ? 12 : p.x,
       (ready ? terrainHeight(12, 105) + 2 : p.y) +
@@ -1011,9 +1267,6 @@ export class GameEngine {
     if (this.bossVisual && (playing || ready)) {
       this.bossVisual.core.rotation.y += dt * 0.17;
       this.bossVisual.cage.rotation.y -= dt * 0.035;
-      this.bossVisual.group.children
-        .slice(2, 5)
-        .forEach((o, i) => (o.rotation.z += dt * (i % 2 ? -0.07 : 0.09)));
     }
     if (ready) {
       const desired = new THREE.Vector3(
@@ -1088,6 +1341,52 @@ export class GameEngine {
         alive: p.active,
       }),
     );
+    s.breached = this.breaches.filter((b) => b.breached).length;
+    const active = this.breaches.findIndex((b) => b.gate > 0 && !b.breached);
+    const candidates = OUTPOSTS.map((site, index) => ({
+      site,
+      index,
+      distance: Math.hypot(site.x - p.x, site.z - p.z),
+    }))
+      .filter(({ index }) => this.enemies[index].hp > 0)
+      .sort((a, b) => a.distance - b.distance);
+    const chosen = active >= 0 ? active : candidates[0]?.index;
+    let waypoint;
+    s.breachTime = active >= 0 ? this.breaches[active].remaining : 0;
+    s.breachGate = active >= 0 ? this.breaches[active].gate : 0;
+    if (chosen !== undefined) {
+      const site = OUTPOSTS[chosen],
+        breach = this.breaches[chosen];
+      const goal = breach.breached
+        ? { x: site.x, z: site.z, altitude: 17 }
+        : site.gates[breach.gate];
+      waypoint = {
+        name: site.name,
+        detail: breach.breached
+          ? "DESTROY EXPOSED RELAY"
+          : breach.gate === 2
+            ? "JUMP THE COUPLER · 90+ KM/H"
+            : `BREACH GATE 0${breach.gate + 1}`,
+        x: goal.x,
+        y: terrainHeight(goal.x, goal.z) + goal.altitude,
+        z: goal.z,
+        distance: 0,
+      };
+      if (!breach.breached)
+        s.blips.push({ x: goal.x, z: goal.z, kind: "gate", alive: true });
+    } else
+      waypoint = {
+        name: LEVELS[s.level].boss,
+        detail: "REACTOR EXPOSED",
+        x: BOSS_POSITION.x,
+        y: 22,
+        z: BOSS_POSITION.z,
+        distance: 0,
+      };
+    waypoint.distance = Math.round(
+      Math.hypot(waypoint.x - p.x, waypoint.z - p.z),
+    );
+    s.waypoint = waypoint;
     s.target = this.target?.hp
       ? this.target.kind === "boss"
         ? LEVELS[s.level].boss
@@ -1125,6 +1424,7 @@ export class GameEngine {
       "contextmenu",
       this.contextMenu,
     );
+    this.effects.dispose();
     disposeObject(this.scene);
     this.particlesGeo.dispose();
     this.mineGeo.dispose();

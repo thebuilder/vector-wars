@@ -346,19 +346,21 @@ h1 > span:first-of-type {
   position: absolute;
   right: 40px;
   top: 153px;
-  width: 263px;
+  width: 320px;
+  border: 1px solid #86fadd30;
   border-top: 1px solid var(--line-strong);
   border-bottom: 1px solid var(--line);
-  padding: 15px 0 0;
-  background: linear-gradient(90deg, transparent, rgba(5, 9, 10, 0.42));
-  z-index: 2;
+  padding: 16px 18px 0;
+  background: #081311;
+  box-shadow: 0 8px 32px #0005;
+  z-index: 9;
 }
-.panel-topline {
+.mission-panel .panel-topline {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 9px;
-  letter-spacing: 1px;
+  font-size: 10px;
+  letter-spacing: 0.7px;
   color: var(--phosphor);
 }
 .panel-topline > span:first-child {
@@ -366,21 +368,21 @@ h1 > span:first-of-type {
   gap: 8px;
   align-items: center;
 }
-.panel-topline [data-slot="badge"] {
-  font-size: 7px;
-  letter-spacing: 0.7px;
+.mission-panel .panel-topline [data-slot="badge"] {
+  font-size: 8px;
+  letter-spacing: 0.4px;
   padding-top: 1px;
   height: 16px;
 }
 .mission-number {
   font-family: var(--afterglow-font-sans);
-  font-size: 44px;
+  font-size: 32px;
   font-weight: 500;
   line-height: 1;
   display: flex;
   align-items: flex-end;
   gap: 7px;
-  margin: 21px 0 11px;
+  margin: 12px 0 10px;
   color: var(--ink);
 }
 .mission-number > span {
@@ -403,65 +405,64 @@ h1 > span:first-of-type {
   );
 }
 .mission-panel h2 {
-  font: 500 14px var(--afterglow-font-sans);
-  letter-spacing: 1.2px;
+  font: 600 17px var(--afterglow-font-sans);
+  letter-spacing: 0.7px;
   margin: 0 0 10px;
 }
-.mission-description {
-  font-size: 9px;
-  color: var(--ink-muted);
-  line-height: 1.85;
-  max-width: 240px;
-  margin: 0 0 20px;
+.mission-panel .mission-description {
+  font: 400 14px/1.5 var(--afterglow-font-sans);
+  color: #b6cec5;
+  margin: 0 0 14px;
 }
-.objective-row {
+.mission-panel .objective-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 9px;
-  color: #c0d0cd;
-  margin: 13px 0;
+  font-size: 12px;
+  color: #d9ece5;
+  margin: 12px 0;
 }
-.objective-row b,
-.objective-row > svg {
+.mission-panel .objective-row b,
+.mission-panel .objective-row > svg {
   margin-left: auto;
-  font-size: 9px;
-  font-weight: 400;
-  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 500;
+  color: #b6cec5;
 }
-.objective-square {
-  font-size: 7px;
-  letter-spacing: -0.5px;
+.mission-panel .objective-square {
+  flex-shrink: 0;
+  font-size: 9px;
+  letter-spacing: 0;
   border: 1px solid #86fadd3d;
   width: 18px;
   height: 18px;
   display: grid;
   place-items: center;
-  color: var(--phosphor-dim);
+  color: #9fc9ba;
 }
 .objective-done {
   color: var(--phosphor);
   width: 18px;
   text-align: center;
 }
-.objective-row .shield-icon {
+.mission-panel .objective-row .shield-icon {
   color: var(--signal);
 }
-.mission-footer {
+.mission-panel .mission-footer {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 7px;
-  letter-spacing: 0.7px;
-  color: var(--signal);
-  padding: 13px 0;
+  font-size: 9px;
+  letter-spacing: 0.4px;
+  color: #ff90aa;
+  padding: 10px 0;
   border-top: 1px solid var(--line);
-  margin-top: 20px;
+  margin-top: 10px;
 }
-.mission-footer > span:last-child {
-  color: var(--ink-muted);
+.mission-panel .mission-footer > span:last-child {
+  color: #a9c3b9;
   margin-left: auto;
-  font-size: 7px;
+  font-size: 9px;
   letter-spacing: 0.3px;
 }
 .vehicle-label {
@@ -1291,7 +1292,7 @@ h1 > span:first-of-type {
     font-size: 12px;
   }
   .mission-panel {
-    width: 286px;
+    width: 340px;
     right: 55px;
   }
   .radar-position {
@@ -1381,10 +1382,6 @@ h1 > span:first-of-type {
     margin-top: 15px;
     font-size: 36px;
   }
-  .mission-description {
-    font-size: 8px;
-    margin-bottom: 14px;
-  }
   .objective-row {
     margin-block: 10px;
   }
@@ -1448,20 +1445,10 @@ h1 > span:first-of-type {
   }
   .mission-panel {
     right: 27px;
-    width: 220px;
-  }
-  .mission-description {
-    font-size: 8px;
+    width: 300px;
   }
   .mission-panel h2 {
-    font-size: 12px;
-  }
-  .mission-footer {
-    font-size: 6px;
-    letter-spacing: 0.3px;
-  }
-  .mission-footer > span:last-child {
-    font-size: 6px;
+    font-size: 15px;
   }
   .radar-position {
     right: 27px;
@@ -1536,7 +1523,7 @@ h1 > span:first-of-type {
     min-height: 650px;
   }
   .mission-panel {
-    width: 185px;
+    width: 270px;
     top: 130px;
   }
   .mission-number {
@@ -1546,18 +1533,8 @@ h1 > span:first-of-type {
     display: none;
   }
   .mission-panel h2 {
-    font-size: 10px;
+    font-size: 14px;
     margin-top: 10px;
-  }
-  .objective-row {
-    font-size: 8px;
-    gap: 6px;
-  }
-  .panel-topline {
-    font-size: 7px;
-  }
-  .panel-topline [data-slot="badge"] {
-    font-size: 5px;
   }
   .mission-footer > span:last-child {
     display: none;
@@ -1835,6 +1812,12 @@ h1 > span:first-of-type {
 }
 
 @media (max-height: 850px) and (min-width: 1000px) {
+  .mission-number {
+    display: none;
+  }
+  .mission-panel h2 {
+    margin-top: 14px;
+  }
   .mission-description {
     display: none;
   }

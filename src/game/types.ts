@@ -28,6 +28,7 @@ export interface Snapshot {
   level: number;
   health: number;
   boost: number;
+  overdrive: number;
   speed: number;
   weapon: Weapon;
   missiles: number;
@@ -140,6 +141,7 @@ export const initialSnapshot: Snapshot = {
   level: 0,
   health: 100,
   boost: 100,
+  overdrive: 0,
   speed: 0,
   weapon: "laser",
   missiles: 12,

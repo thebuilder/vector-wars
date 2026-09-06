@@ -54,7 +54,7 @@ User preferences remain constraints: segmented meters, stable telemetry width, a
 
 **Code/UI review:** Optional convoy cargo mainly restores resources also available from free caches. Its reward is not sufficiently clear before interception. The chase may therefore feel less worthwhile than bypassing it.
 
-**Hypotheses to test:** Missiles could have an explicit anti-armour role. Cargo could offer a distinct reward rather than duplicating ordinary supply caches. The anti-armour role was implemented after a stationary-fire regression confirmed bosses could die before their opening attacks arrived. Exclusive cargo rewards remain deferred.
+**Hypotheses to test:** Missiles could have an explicit anti-armour role. Cargo could offer a distinct reward rather than duplicating ordinary supply caches. The anti-armour role was implemented after a stationary-fire regression confirmed bosses could die before their opening attacks arrived. The follow-up correction adds exclusive convoy Overdrive as described below; whether players find it worthwhile still needs human playtesting.
 
 ### 7. Meltdown instructions imply a hazard that is not present — clarity follow-up
 
@@ -75,9 +75,15 @@ These priorities are implemented. The active gate now has a numbered marker, con
 ## Deferred balancing and expansion
 
 - Further weapon damage/ammunition balance after human playtesting.
-- A distinct convoy cargo reward; the current repair/ammo benefit is now labeled.
-- A ramming enemy role to complement orbiting drones.
-- Further route highlighting and a possible escape mechanic during meltdown.
+- A possible optional escape mechanic during meltdown. The current sequence correctly communicates that the sector is already secured.
+
+## Follow-up corrections implemented
+
+- **Route guidance:** The persistent minimap highlights the road to the selected objective with directional chevrons and previews remaining breach gates. Gate sampling no longer turns a nearly completed approach into a full lap. A nearby missed coupler shows a dashed return around the ramp flank to its lead-in, followed by the forward launch route. The dashed off-road return is advisory and does not perform obstacle-aware pathfinding.
+- **Exclusive cargo reward:** Convoy cargo grants 30 seconds of Overdrive, restoring boost continuously while the pilot holds Shift. The existing boost row shows the countdown without resizing the segmented cockpit. Time freezes on pause, expires back to normal boost consumption, and resets on sector load/retry. Ordinary supply caches do not grant Overdrive. Convoy copy explains the reward before interception.
+- **Ramming enemies:** Amber, forked hovercraft join outpost guards, incoming patrols, and convoy escorts. They approach, mark a fixed charge lane for one second, rush along the committed heading, then stop for recovery. They deal contact damage rather than firing, can be defeated by mines, follow ramp decks from the toe, and stagger against solid obstacles. Warning lanes disappear on destruction and aftermath. Escorts can catch the fastest convoy.
+
+These changes preserve the close chase camera, fixed 312 × 220 telemetry card, segmented meters, and always-visible minimap. They implement the remaining concrete simulated-playtest findings; they do not establish player enjoyment or final difficulty balance.
 
 ## Validation plan
 
@@ -95,3 +101,5 @@ Browser sessions were brief and did not provide a complete human-driven campaign
 ## Verification outcome
 
 All 100 automated tests and the production build pass. The automated suite covers launch protection for 60 simulated seconds, route headings for all worlds, stable and explicit mission selection, coupler retry reasons, all three attack directors, shockwave jump clearance, pause/aftermath cleanup, and a full-health Sentinel that threatens a stationary laser-firing craft before dying. The real browser campaign fixture passed through all sectors. Main-agent browser checks verified the protected launch, T selection, persistent minimap, breach guide, and rendered sweep/pulse effects. This is correctness and visual evidence, not a claim that difficulty or enjoyment has been validated with people.
+
+Follow-up verification: 162 automated checks pass, including 44 route cases, 10 rammer-director cases, and real-engine checks for rammer impact, mine interception, pillar staggering, ramp support, death cleanup, and Overdrive pause/expiry. Browser inspection verified the amber navigation overlay in compact/expanded maps, rendered rammer warning lane, and Overdrive countdown. The HUD fixture confirms unchanged 312 × 220 dimensions across speed digit boundaries and Overdrive activation/expiry. The production build and complete browser campaign fixture pass; no browser console errors were observed.

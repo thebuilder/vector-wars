@@ -167,7 +167,7 @@ export function stepVehicle(
 /** Resolve solid sides before sampling suspension support. A low side impact must
  * never turn into a landing on the wedge's deck. */
 export function resolveWorldContacts(
-  v: VehicleState,
+  v: Pick<VehicleState, "x" | "y" | "z" | "vx" | "vz">,
   previous: { x: number; y: number; z: number },
   world: WorldLayout = WORLDS[0],
 ): number {

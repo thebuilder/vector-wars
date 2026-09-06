@@ -3,6 +3,8 @@ import { BossHazards } from "./boss-hazards";
 import { ConvoyRoute } from "./convoys";
 import { createTransport } from "./transport";
 import { EncounterDirector } from "./encounters";
+import { RammerDirector } from "./rammer";
+import { createRammer } from "./rammer-visual";
 import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
@@ -13,8 +15,10 @@ import {
   createVehicle,
   stepVehicle,
   terrainHeight,
+  surfaceHeight,
   segmentHitsSphere,
   separateVehicles,
+  resolveWorldContacts,
   type VehicleState,
 } from "./physics";
 import {
@@ -58,6 +62,9 @@ type Enemy = {
   arrival?: number;
   deathAge?: number;
   hitUntil?: number;
+  rammer?: RammerDirector;
+  rammerCommitted?: boolean;
+  rammerVisual?: ReturnType<typeof createRammer>;
 };
 type Shot = {
   object: THREE.Mesh;
@@ -113,6 +120,7 @@ export class GameEngine {
   private layout: WorldLayout = WORLDS[0];
   private environment?: THREE.Group;
   private selectedOutpost = 0;
+  private rammerWarningUntil = 0;
   private bossAttacks = new BossAttackDirector();
   private bossHazards = new BossHazards(this.scene, (x, z) =>
     this.terrainHeight(x, z),
@@ -289,6 +297,7 @@ export class GameEngine {
     this.player = createVehicle(this.layout);
     this.alignLaunchHeading();
     this.selectedOutpost = 0;
+    this.rammerWarningUntil = 0;
     this.fireCooldown = 0;
     this.jumpCooldown = 0;
     this.invulnerable = 2;
@@ -343,7 +352,7 @@ export class GameEngine {
     });
     for (let i = 0; i < LEVELS[level].drones; i++) {
       const home = this.enemies[i % 3].home.clone();
-      this.spawnDrone(home, i * 2.4, false);
+      this.spawnDrone(home, i * 2.4, false, i % 4 === 3);
     }
     for (const fraction of [0.12, 0.6]) this.spawnConvoy(fraction);
     for (const [x, z] of this.layout.supplies) {
@@ -410,8 +419,14 @@ export class GameEngine {
     this.refreshSnapshot();
     this.emit();
   }
-  private spawnDrone(home: THREE.Vector3, angle: number, arriving: boolean) {
-    const object = createDrone(this.texture);
+  private spawnDrone(
+    home: THREE.Vector3,
+    angle: number,
+    arriving: boolean,
+    rammer = false,
+  ) {
+    const rammerVisual = rammer ? createRammer(this.texture) : undefined;
+    const object = rammerVisual?.object ?? createDrone(this.texture);
     object.position.set(
       home.x + Math.cos(angle) * 35,
       0,
@@ -430,16 +445,19 @@ export class GameEngine {
       4 +
       (arriving ? 24 : 0);
     this.dynamic.add(object);
+    if (rammerVisual) this.dynamic.add(rammerVisual.lane);
     this.enemies.push({
       kind: "drone",
       object,
-      hp: 45,
-      maxHp: 45,
+      hp: rammer ? 80 : 45,
+      maxHp: rammer ? 80 : 45,
       radius: 3.3,
       cooldown: 2,
       home: home.clone(),
       phase: angle,
       arrival: arriving ? 1.2 : 0,
+      rammer: rammer ? new RammerDirector() : undefined,
+      rammerVisual,
     });
     if (arriving) this.explode(object.position, 0x9bddff, 8);
     return this.enemies[this.enemies.length - 1];
@@ -466,7 +484,7 @@ export class GameEngine {
     };
     this.enemies.push(transport);
     for (let i = 0; i < 2; i++)
-      this.spawnDrone(position, i * Math.PI, false).escort = transport;
+      this.spawnDrone(position, i * Math.PI, false, i === 1).escort = transport;
   }
   private dropSalvage(position: THREE.Vector3) {
     const object = new THREE.Group();
@@ -508,6 +526,7 @@ export class GameEngine {
         home,
         (i * Math.PI * 2) / region.count + event.index,
         true,
+        i === region.count - 1,
       );
   }
   start() {
@@ -735,6 +754,9 @@ export class GameEngine {
       z: this.player.z,
     };
     const wasAirborne = this.player.airborne;
+    const overdrive = this.snapshot.overdrive > 0;
+    this.snapshot.overdrive = Math.max(0, this.snapshot.overdrive - dt);
+    if (overdrive) this.player.boost = 100;
     this.fireCooldown -= dt;
     this.jumpCooldown -= dt;
     this.invulnerable -= dt;
@@ -758,6 +780,7 @@ export class GameEngine {
       dt,
       this.layout,
     );
+    if (overdrive) this.player.boost = 100;
     if (jump && !wasAirborne) {
       this.jumpCooldown = 1.1;
       this.audio.effect("jump");
@@ -941,6 +964,7 @@ export class GameEngine {
   }
   private updateEnemies(dt: number, player: THREE.Vector3) {
     for (const enemy of this.enemies) {
+      if (this.snapshot.phase !== "playing") break;
       if (enemy.hp <= 0) continue;
       if ((enemy.arrival ?? 0) > 0) {
         enemy.arrival = Math.max(0, enemy.arrival! - dt);
@@ -980,7 +1004,7 @@ export class GameEngine {
         if (!enemy.announced && distance < 240) {
           enemy.announced = true;
           this.message(
-            "SUPPLY CONVOY · DESTROY TRANSPORT, RECOVER ITS CARGO",
+            "SUPPLY CONVOY · CARGO GRANTS 30s FREE BOOST + SUPPLIES",
             4,
           );
           this.audio.effect("alarm");
@@ -990,30 +1014,111 @@ export class GameEngine {
         if (enemy.escort?.hp && enemy.escort.hp > 0)
           enemy.home.copy(enemy.escort.object.position);
         const engaged = distance < 165 && enemy.home.distanceTo(player) < 240;
-        const a = this.time * 0.42 + enemy.phase;
-        const center = engaged ? player : enemy.home;
-        const destination = new THREE.Vector3(
-          center.x + Math.cos(a) * (engaged ? 27 : 36),
-          0,
-          center.z + Math.sin(a) * (engaged ? 27 : 36),
-        );
-        destination.y =
-          this.terrainHeight(destination.x, destination.z) +
-          3.4 +
-          Math.sin(a) * 0.6;
         const velocity = (enemy.velocity ??= new THREE.Vector3());
-        const desired = destination.sub(p);
-        const remaining = desired.length();
-        desired
-          .normalize()
-          .multiplyScalar(
-            Math.min(
-              remaining * 2,
-              engaged || enemy.escort?.hp ? 35 + this.snapshot.level * 3 : 15,
-            ),
+        if (enemy.rammer) {
+          const previous = { x: p.x, y: p.y, z: p.z };
+          const active = engaged || !!enemy.rammerCommitted;
+          const movement = enemy.rammer.update(dt, {
+            active,
+            x: p.x,
+            z: p.z,
+            playerX: player.x,
+            playerZ: player.z,
+          });
+          enemy.rammerCommitted = movement.phase !== "approach";
+          velocity.set(movement.vx, 0, movement.vz);
+          if (!active) {
+            velocity.set(enemy.home.x - p.x, 0, enemy.home.z - p.z);
+            const distance = velocity.length();
+            velocity
+              .normalize()
+              .multiplyScalar(
+                Math.min(
+                  enemy.escort?.hp ? 45 : 28,
+                  Math.max(0, distance - 35),
+                ),
+              );
+          }
+          // A committed charge continues even if the pilot escapes its aggro radius.
+          p.addScaledVector(velocity, dt);
+          const previousFloor = surfaceHeight(
+            previous.x,
+            previous.z,
+            this.layout,
           );
-        velocity.lerp(desired, 1 - Math.exp(-2.4 * dt));
-        p.addScaledVector(velocity, dt);
+          const floor = surfaceHeight(p.x, p.z, this.layout);
+          // Follow a deck reached from its low toe; high side entry still meets
+          // the solid wall, and leaving a lip eases back down to the terrain.
+          if (
+            Math.abs(previous.y - previousFloor - 2.6) < 1 &&
+            Math.abs(floor - previousFloor) < 1
+          )
+            p.y = floor + 2.6;
+          else
+            p.y +=
+              (this.terrainHeight(p.x, p.z) + 2.6 - p.y) *
+              (1 - Math.exp(-10 * dt));
+          const body = {
+            x: p.x,
+            y: p.y,
+            z: p.z,
+            vx: velocity.x,
+            vz: velocity.z,
+          };
+          const impact = resolveWorldContacts(body, previous, this.layout);
+          p.x = body.x;
+          p.z = body.z;
+          if (impact > 2) {
+            enemy.rammer.stagger();
+            velocity.set(0, 0, 0);
+            this.explode(p, 0xffbc57, 8);
+          }
+          if (active || velocity.lengthSq() > 0)
+            enemy.object.rotation.y = active
+              ? movement.heading
+              : Math.atan2(-velocity.x, -velocity.z);
+          enemy.rammerVisual!.update(
+            active && movement.phase === "windup",
+            movement.heading,
+            this.time,
+            (x, z) => this.terrainHeight(x, z),
+          );
+          if (movement.warning && this.time >= this.rammerWarningUntil) {
+            this.rammerWarningUntil = this.time + 4;
+            this.message(
+              "RAMMER LOCKED · EVADE THE AMBER LANE / DROP A MINE",
+              2,
+            );
+            this.audio.effect("alarm");
+          }
+        } else {
+          const a = this.time * 0.42 + enemy.phase;
+          const center = engaged ? player : enemy.home;
+          const destination = new THREE.Vector3(
+            center.x + Math.cos(a) * (engaged ? 27 : 36),
+            0,
+            center.z + Math.sin(a) * (engaged ? 27 : 36),
+          );
+          destination.y =
+            this.terrainHeight(destination.x, destination.z) +
+            3.4 +
+            Math.sin(a) * 0.6;
+          const desired = destination.sub(p);
+          const remaining = desired.length();
+          desired
+            .normalize()
+            .multiplyScalar(
+              Math.min(
+                remaining * 2,
+                engaged || enemy.escort?.hp ? 35 + this.snapshot.level * 3 : 15,
+              ),
+            );
+          velocity.lerp(desired, 1 - Math.exp(-2.4 * dt));
+          p.addScaledVector(velocity, dt);
+          enemy.object.lookAt(player);
+          enemy.object.rotation.z =
+            Math.sin(this.time * 2 + enemy.phase) * 0.15;
+        }
         const body = { x: p.x, y: p.y, z: p.z, vx: velocity.x, vz: velocity.z };
         const contact = separateVehicles(this.player, body, 6);
         p.x = body.x;
@@ -1024,13 +1129,16 @@ export class GameEngine {
           this.damagePlayer(Math.min(18, contact * 0.25), p);
           this.explode(p, 0xffbd87, 8);
         }
-        enemy.object.lookAt(player);
-        enemy.object.rotation.z = Math.sin(this.time * 2 + enemy.phase) * 0.15;
       }
       if (enemy.kind === "boss")
         p.y = enemy.home.y + Math.sin(this.time * 0.7) * 0.6;
       const range = enemy.kind === "relay" ? 105 : 90;
-      if (enemy.kind !== "boss" && enemy.cooldown <= 0 && distance < range) {
+      if (
+        enemy.kind !== "boss" &&
+        !enemy.rammer &&
+        enemy.cooldown <= 0 &&
+        distance < range
+      ) {
         const origin = this.aimPoint(enemy);
         const direction = player
           .clone()
@@ -1291,6 +1399,7 @@ export class GameEngine {
       this.confirmSoundAt = this.time + 0.1;
     }
     if (enemy.hp > 0) return;
+    if (enemy.rammerVisual) enemy.rammerVisual.lane.visible = false;
     enemy.deathAge = 0;
     this.snapshot.score +=
       enemy.kind === "drone"
@@ -1302,7 +1411,9 @@ export class GameEngine {
             : 5000;
     this.snapshot.killText =
       enemy.kind === "drone"
-        ? "INTERCEPTOR DESTROYED +150"
+        ? enemy.rammer
+          ? "RAMMER DESTROYED +150"
+          : "INTERCEPTOR DESTROYED +150"
         : enemy.kind === "transport"
           ? "TRANSPORT DISABLED +750"
           : enemy.kind === "relay"
@@ -1319,10 +1430,7 @@ export class GameEngine {
     this.effects.burst(this.aimPoint(enemy), enemy.kind === "drone" ? 1 : 3);
     if (enemy.kind === "transport") {
       this.dropSalvage(enemy.object.position);
-      this.message(
-        "CARGO RELEASED · COLLECT THE BLUE CACHE FOR REPAIRS + AMMO",
-        5,
-      );
+      this.message("CARGO RELEASED · BLUE CACHE: 30s OVERDRIVE + SUPPLIES", 5);
     }
     if (enemy.kind === "relay") {
       this.snapshot.relays++;
@@ -1380,6 +1488,9 @@ export class GameEngine {
   private beginAftermath(outcome: "won" | "lost") {
     this.bossHazards.clear();
     this.bossAttacks.reset();
+    this.enemies.forEach((enemy) => {
+      if (enemy.rammerVisual) enemy.rammerVisual.lane.visible = false;
+    });
     this.snapshot.bossAttack = "";
     this.aftermathOutcome = outcome;
     this.snapshot.aftermathTime = 0;
@@ -1565,10 +1676,13 @@ export class GameEngine {
         pickup.object.visible = false;
         pickup.cooldown = 25;
         this.audio.effect("pickup");
-        if (pickup.salvage) this.snapshot.score += 500;
+        if (pickup.salvage) {
+          this.snapshot.score += 500;
+          this.snapshot.overdrive = 30;
+        }
         this.message(
           pickup.salvage
-            ? "CARGO RECOVERED +500 · HULL +35 / AMMO / BOOST"
+            ? "OVERDRIVE ONLINE · HOLD SHIFT FOR 30s FREE BOOST · +500"
             : "REPAIRED +35 / AMMO RESUPPLIED",
           3,
         );
@@ -1759,7 +1873,9 @@ export class GameEngine {
           ? "SHIELD RELAY"
           : this.target.kind === "transport"
             ? "ARMORED TRANSPORT"
-            : "INTERCEPTOR"
+            : this.target.rammer
+              ? "RAMMER"
+              : "INTERCEPTOR"
       : "";
     s.targetDistance = this.target
       ? Math.round(

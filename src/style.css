@@ -2518,3 +2518,16 @@ h1 > span:first-of-type {
   letter-spacing: 0.5px;
   text-align: center;
 }
+
+.drive-meters > .overdrive-active:not([data-slot]) {
+  color: #ffe0a7;
+}
+.overdrive-active > span {
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+}
+.overdrive-active > strong {
+  min-width: 4ch;
+  text-align: right;
+  white-space: nowrap;
+}

@@ -377,6 +377,7 @@ for (const checkpoint of [
   "canyon",
   "ash",
   "convoy",
+  "rammer",
   "fan",
   "sweep",
   "pulse",
@@ -445,6 +446,30 @@ for (const checkpoint of [
       game.cameraPosition.copy(player).addScaledVector(forward, -18);
       game.cameraPosition.y += 12;
       game.cameraLook.copy(transport.object.position);
+    }
+    if (checkpoint === "rammer") {
+      Object.assign(game.player, {
+        x: 0,
+        z: 125,
+        y: terrainHeight(0, 125) + 1.7,
+      });
+      const rammer = game.spawnDrone(
+        new THREE.Vector3(0, 0, 65),
+        0,
+        false,
+        true,
+      );
+      rammer.object.position.set(0, terrainHeight(0, 65) + 2.6, 65);
+      game.enemies
+        .filter((enemy: any) => enemy !== rammer)
+        .forEach((enemy: any) => {
+          enemy.hp = 0;
+          enemy.object.visible = false;
+        });
+      for (let i = 0; i < 192; i++)
+        game.updateEnemies(1 / 120, new THREE.Vector3(0, game.player.y, 125));
+      game.cameraPosition.set(12, game.player.y + 12, 145);
+      game.cameraLook.set(0, rammer.object.position.y, 75);
     }
     if (["fan", "sweep", "pulse"].includes(checkpoint)) {
       game.snapshot.relays = 3;

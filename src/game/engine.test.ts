@@ -6,7 +6,7 @@ import { WORLDS } from "./worlds";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import { GameEngine } from "./engine";
-import { createVehicle, terrainHeight } from "./physics";
+import { createVehicle, terrainHeight, surfaceHeight } from "./physics";
 import { createBoss, createDrone, createRelay, disposeObject } from "./world";
 import { CombatEffects } from "./effects";
 import { createBreaches } from "./mission";
@@ -56,6 +56,7 @@ function simulation() {
     scene,
     layout: WORLDS[0],
     selectedOutpost: 0,
+    rammerWarningUntil: 0,
     bossAttacks: new BossAttackDirector(),
     bossHazards: new BossHazards(scene, terrainHeight),
     bossWarningUntil: 0,
@@ -117,6 +118,105 @@ function advance(game: any, seconds: number) {
 }
 
 describe("combat and aftermath simulation", () => {
+  function rammerEncounter() {
+    const game = simulation();
+    const rammer = game.spawnDrone(new THREE.Vector3(0, 0, 65), 0, false, true);
+    rammer.object.position.set(0, terrainHeight(0, 65) + 2.6, 65);
+    game.enemies = [rammer];
+    return { game, rammer };
+  }
+  it("telegraphs rammers, pauses their windup, and causes physical contact damage without gunfire", () => {
+    const { game, rammer } = rammerEncounter();
+    advance(game, 1.6);
+    expect(rammer.rammerVisual.lane.visible).toBe(true);
+    expect(game.snapshot.message).toContain("RAMMER LOCKED");
+    const before = rammer.object.position.clone();
+    game.pause();
+    advance(game, 4);
+    expect(rammer.object.position.equals(before)).toBe(true);
+    game.resume();
+    advance(game, 2);
+    expect(game.snapshot.health).toBeLessThan(100);
+    expect(game.shots).toHaveLength(0);
+    expect(rammer.rammerVisual.lane.visible).toBe(false);
+  });
+  it("lets a deployed mine stop a committed rammer before impact", () => {
+    const { game, rammer } = rammerEncounter();
+    advance(game, 1.6);
+    game.snapshot.weapon = "mine";
+    game.fire(new THREE.Vector3(game.player.x, game.player.y, game.player.z));
+    advance(game, 2);
+    expect(rammer.hp).toBe(0);
+    expect(game.snapshot.health).toBe(100);
+    expect(game.snapshot.killText).toContain("RAMMER DESTROYED");
+    expect(rammer.rammerVisual.lane.visible).toBe(false);
+  });
+  it("removes rammer warnings immediately when the sector ends", () => {
+    const { game, rammer } = rammerEncounter();
+    advance(game, 1.6);
+    expect(rammer.rammerVisual.lane.visible).toBe(true);
+    game.beginAftermath("won");
+    expect(rammer.rammerVisual.lane.visible).toBe(false);
+  });
+  it("lets a pillar stop and stagger a charging rammer", () => {
+    const { game, rammer } = rammerEncounter();
+    game.layout = {
+      ...WORLDS[0],
+      ramps: [],
+      pillars: [{ x: 0, z: 100, radius: 5, height: 20 }],
+    };
+    advance(game, 3.3);
+    expect(rammer.object.position.z).toBeLessThanOrEqual(92.8);
+    expect(game.snapshot.health).toBe(100);
+    const stopped = rammer.object.position.clone();
+    advance(game, 0.4);
+    expect(Math.abs(rammer.object.position.z - stopped.z)).toBeLessThan(0.01);
+  });
+  it("carries a rammer over a ramp from its toe without snapping sideways", () => {
+    const { game, rammer } = rammerEncounter();
+    game.layout = {
+      ...WORLDS[0],
+      pillars: [],
+      ramps: [{ x: 0, z: 0, width: 42, length: 38, height: 9 }],
+    };
+    rammer.object.position.set(0, terrainHeight(0, 35) + 2.6, 35);
+    rammer.home.set(0, 0, 35);
+    Object.assign(game.player, {
+      x: 0,
+      z: -60,
+      y: terrainHeight(0, -60) + 1.7,
+    });
+    const input = { active: true, x: 0, z: 35, playerX: 0, playerZ: -60 };
+    rammer.rammer.update(1.4, input);
+    rammer.rammer.update(1, input);
+    let deckSamples = 0;
+    for (let frame = 0; frame < 80; frame++) {
+      game.updateEnemies(1 / 120, new THREE.Vector3(0, game.player.y, -60));
+      const p = rammer.object.position;
+      expect(Math.abs(p.x)).toBeLessThan(0.01);
+      if (p.z < 18 && p.z > -18) {
+        expect(p.y).toBeCloseTo(surfaceHeight(p.x, p.z, game.layout) + 2.6);
+        deckSamples++;
+      }
+    }
+    expect(deckSamples).toBeGreaterThan(30);
+    expect(rammer.object.position.z).toBeLessThan(-19);
+  });
+  it("does not restore a later rammer's warning after lethal contact", () => {
+    const { game, rammer } = rammerEncounter();
+    const later = game.spawnDrone(new THREE.Vector3(20, 0, 65), 0, false, true);
+    advance(game, 1.6);
+    expect(later.rammerVisual.lane.visible).toBe(true);
+    const p = rammer.object.position;
+    Object.assign(game.player, { x: p.x + 1, y: p.y, z: p.z, vx: -100, vz: 0 });
+    game.snapshot.health = 1;
+    game.updateEnemies(
+      1 / 120,
+      new THREE.Vector3(game.player.x, game.player.y, game.player.z),
+    );
+    expect(game.snapshot.phase).toBe("aftermath");
+    expect(later.rammerVisual.lane.visible).toBe(false);
+  });
   it("deploys without moving or resizing the craft, then eases the camera behind it", () => {
     const game = simulation();
     game.snapshot.phase = "ready";
@@ -193,11 +293,43 @@ describe("combat and aftermath simulation", () => {
     expect(game.snapshot.missiles).toBe(6);
     expect(game.player.boost).toBe(100);
     expect(game.snapshot.score).toBe(1250);
+    expect(game.snapshot.overdrive).toBe(30);
     game.updatePickups(60, cargo.object.position);
     expect(cargo.active).toBe(false);
     expect(game.snapshot.score).toBe(1250);
     game.damageEnemy(transport, 1000);
     expect(game.pickups).toHaveLength(1);
+  });
+  it("makes convoy overdrive free while boosting, freezes on pause, and expires back to normal drain", () => {
+    const game = simulation();
+    game.dropSalvage(
+      new THREE.Vector3(game.player.x, game.player.y, game.player.z),
+    );
+    game.updatePickups(0, game.pickups[0].object.position);
+    game.enemies = [];
+    game.keys.add("KeyW");
+    game.keys.add("ShiftLeft");
+    advance(game, 2);
+    expect(game.player.boost).toBe(100);
+    expect(Math.hypot(game.player.vx, game.player.vz)).toBeGreaterThan(35);
+    expect(game.snapshot.overdrive).toBeCloseTo(28);
+    game.pause();
+    advance(game, 10);
+    expect(game.snapshot.overdrive).toBeCloseTo(28);
+    game.resume();
+    game.keys.add("KeyW");
+    game.keys.add("ShiftLeft");
+    game.snapshot.overdrive = 0.5;
+    advance(game, 1);
+    expect(game.snapshot.overdrive).toBe(0);
+    expect(game.player.boost).toBeLessThan(90);
+  });
+  it("keeps ordinary supply caches distinct from convoy overdrive", () => {
+    const game = simulation();
+    game.pickups.push({ object: new THREE.Group(), active: true, cooldown: 0 });
+    game.updatePickups(0, new THREE.Vector3());
+    expect(game.player.boost).toBe(100);
+    expect(game.snapshot.overdrive).toBe(0);
   });
   it("pushes the player out of a heavy transport instead of letting it overlap", () => {
     const game = simulation();

@@ -9,7 +9,7 @@ import { initialSnapshot } from "../src/game/types";
 
 // Actual HUD and stylesheet, exercised at digit and airborne label boundaries.
 const root = createRoot(document.querySelector("#fixture")!);
-const render = (speed: number) =>
+const render = (speed: number, overdrive = 0) =>
   flushSync(() =>
     root.render(
       <DrivingHUD
@@ -17,6 +17,7 @@ const render = (speed: number) =>
           ...initialSnapshot,
           phase: "playing",
           speed,
+          overdrive,
           altitude: speed > 100 ? 12 : 0,
         }}
         onWeapon={() => {}}
@@ -56,7 +57,20 @@ document.querySelector("#run")!.addEventListener("click", async () => {
       )
     )
       throw new Error(JSON.stringify(sizes));
-    output.textContent = `PASS: segmented meters. Fixed ${sizes[0].width} × ${sizes[0].height} card at 0, 9, 15, 99, 100, and 320 km/h, including airborne state.`;
+    for (const overdrive of [30, 9.2, 0.1, 0]) {
+      render(320, overdrive);
+      const card = document.querySelector(".drive-vitals")!;
+      const rect = card.getBoundingClientRect();
+      if (rect.width !== sizes[0].width || rect.height !== sizes[0].height)
+        throw new Error("Overdrive changed telemetry geometry");
+      if (
+        overdrive > 0 &&
+        !card.textContent?.includes(`${Math.ceil(overdrive)} S`)
+      )
+        throw new Error("Overdrive countdown is missing");
+    }
+    render(320, 30);
+    output.textContent = `PASS: segmented meters. Fixed ${sizes[0].width} × ${sizes[0].height} card at 0, 9, 15, 99, 100, and 320 km/h, including airborne state and Overdrive activation, countdown and expiry.`;
   } catch (error) {
     output.textContent = `FAIL: ${error}`;
   }

@@ -44,9 +44,15 @@ export function DrivingHUD({
             aria-label="Hull integrity"
             className={state.health < 30 ? "hull-critical" : ""}
           />
-          <div>
-            <span>BOOST</span>
-            <strong>{Math.round(state.boost)}%</strong>
+          <div className={state.overdrive > 0 ? "overdrive-active" : undefined}>
+            <span>
+              {state.overdrive > 0 ? "OVERDRIVE · FREE BOOST" : "BOOST"}
+            </span>
+            <strong>
+              {state.overdrive > 0
+                ? `${Math.ceil(state.overdrive)} S`
+                : `${Math.round(state.boost)}%`}
+            </strong>
           </div>
           <Progress
             cells={22}

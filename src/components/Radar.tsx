@@ -1,11 +1,28 @@
 import { WORLDS, worldRoadCurve } from "../game/worlds";
 import { WORLD_CENTER_Z, WORLD_RADIUS } from "../game/layout";
 import type { Snapshot } from "../game/types";
+import {
+  RouteGuidance,
+  routeArrows,
+  type RoutePoint,
+} from "../game/route-guidance";
 const roadPaths = WORLDS.map((world) =>
   worldRoadCurve(world).getSpacedPoints(400),
 );
+const routes = WORLDS.map((world) => new RouteGuidance(world));
 export function Radar({ state }: { state: Snapshot }) {
   const scale = 76 / WORLD_RADIUS;
+  const guidance =
+    state.phase === "ready"
+      ? null
+      : routes[state.level].guide(state, state.waypoint, state.missionGate);
+  const path = (points: RoutePoint[]) =>
+    points
+      .map(
+        ({ x, z }, i) =>
+          `${i ? "L" : "M"}${110 + x * scale} ${94 + (z - WORLD_CENTER_Z) * scale}`,
+      )
+      .join(" ");
   return (
     <div
       className="radar"
@@ -68,6 +85,68 @@ export function Radar({ state }: { state: Snapshot }) {
           stroke="#86fadd"
           strokeOpacity=".22"
         />
+        {guidance && (
+          <g aria-label="Recommended route follows road arrows to the selected objective">
+            <path
+              aria-label="Dashed off-road return to the ramp approach"
+              d={path(guidance.rejoin)}
+              fill="none"
+              stroke="#ffdc94"
+              strokeWidth="1.2"
+              strokeDasharray="3 3"
+            />
+            <path
+              d={path(guidance.preview)}
+              fill="none"
+              stroke="#ffdc94"
+              strokeOpacity=".5"
+              strokeDasharray="2 2"
+            />
+            <path
+              d={path(guidance.route)}
+              fill="none"
+              stroke="#061018"
+              strokeWidth="3.5"
+            />
+            <path
+              d={path(guidance.route)}
+              fill="none"
+              stroke="#ffdc94"
+              strokeWidth="1.4"
+            />
+            {routeArrows(guidance.route).map((arrow, index) => (
+              <path
+                key={index}
+                d="m-2.2 1.5 2.2-3 2.2 3"
+                fill="none"
+                stroke="#fff3ce"
+                strokeWidth="1.2"
+                transform={`translate(${110 + arrow.x * scale} ${94 + (arrow.z - WORLD_CENTER_Z) * scale}) rotate(${arrow.angle})`}
+              />
+            ))}
+            {guidance.remaining.map((gate, index) => (
+              <g
+                key={index}
+                transform={`translate(${110 + gate.x * scale} ${94 + (gate.z - WORLD_CENTER_Z) * scale})`}
+              >
+                <circle
+                  r="3.5"
+                  fill="#061018"
+                  stroke="#ffdc94"
+                  strokeOpacity=".6"
+                />
+                <text
+                  className="radar-gate-number"
+                  textAnchor="middle"
+                  dy="2.5"
+                  fontSize="6"
+                >
+                  {state.missionGate + index + 2}
+                </text>
+              </g>
+            ))}
+          </g>
+        )}
         <text x="107" y="9">
           N
         </text>
@@ -173,6 +252,9 @@ export function Radar({ state }: { state: Snapshot }) {
         </span>
         <span style={{ color: "#9bddff" }}>▣ CONVOY</span>
         <span className="radar-gate-key">◎ NEXT GATE</span>
+        {!!guidance?.rejoin.length && (
+          <span className="radar-gate-key">-- REJOIN RAMP · OFF-ROAD</span>
+        )}
       </div>
       {state.phase !== "ready" && (
         <div className="convoy-status">
@@ -180,7 +262,7 @@ export function Radar({ state }: { state: Snapshot }) {
             <>
               <span>OPTIONAL · {state.convoys} CONVOYS</span>
               <strong>INTERCEPT CARGO · {state.convoyDistance} M</strong>
-              <span>REPAIRS + AMMO</span>
+              <span>30s FREE BOOST + SUPPLIES</span>
             </>
           ) : (
             <strong>CONVOYS CLEARED</strong>

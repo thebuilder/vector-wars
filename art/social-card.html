@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vector Wars social image</title>
+    <style>
+      body {
+        margin: 0;
+        background: #05090a;
+        color: #d9ece5;
+        font: 14px monospace;
+      }
+      img {
+        display: block;
+        width: 1200px;
+        height: 630px;
+        max-width: 100%;
+        object-fit: contain;
+        object-position: top left;
+      }
+      a,
+      p {
+        display: inline-block;
+        margin: 16px 24px;
+        color: #86fadd;
+      }
+    </style>
+  </head>
+  <body>
+    <p id="status">Rendering the actual game world…</p>
+    <script type="module">
+      import * as THREE from "three";
+      import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+      import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+      import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+      import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+      import "@fontsource/space-grotesk/700.css";
+      import "@fontsource/space-grotesk/500.css";
+      import "@fontsource/ibm-plex-mono/400.css";
+      import {
+        createWorld,
+        createShip,
+        glowTexture,
+        disposeObject,
+      } from "/src/game/world.ts";
+      import { createVehicle } from "/src/game/physics.ts";
+      import { WORLDS, worldRoadCurve } from "/src/game/worlds.ts";
+
+      const width = 1200,
+        height = 630;
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(1);
+      renderer.setClearColor(0x05090a);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.15;
+      const scene = new THREE.Scene();
+      createWorld(scene, WORLDS[0]);
+      const texture = glowTexture();
+      const ship = createShip(texture);
+      await ship.ready;
+      const player = createVehicle(WORLDS[0]);
+      const tangent = worldRoadCurve(WORLDS[0]).getTangentAt(0);
+      const heading = Math.atan2(-tangent.x, -tangent.z);
+      const up = new THREE.Vector3(0, 1, 0);
+      ship.root.position.set(player.x, player.y + 0.5, player.z);
+      ship.root.rotation.y = heading;
+      ship.root.scale.setScalar(1.6);
+      ship.exhausts.forEach((e) => {
+        e.scale.set(2.4, 2.4, 1);
+        e.material.opacity = 0.65;
+      });
+      scene.add(ship.root);
+      const camera = new THREE.PerspectiveCamera(55, width / height, 0.1, 4700);
+      const offset = new THREE.Vector3(9, 5.6, 13).applyAxisAngle(up, heading);
+      camera.position.copy(ship.root.position).add(offset);
+      const look = new THREE.Vector3(-5.6, 1, -2).applyAxisAngle(up, heading);
+      camera.lookAt(ship.root.position.clone().add(look));
+      const composer = new EffectComposer(renderer);
+      composer.addPass(new RenderPass(scene, camera));
+      composer.addPass(
+        new UnrealBloomPass(new THREE.Vector2(width, height), 0.4, 0.45, 0.8),
+      );
+      composer.addPass(new OutputPass());
+      composer.render();
+      await Promise.all([
+        document.fonts.load('700 118px "Space Grotesk"'),
+        document.fonts.load('500 28px "Space Grotesk"'),
+        document.fonts.load('400 12px "IBM Plex Mono"'),
+      ]);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      composer.render();
+      ctx.drawImage(renderer.domElement, 0, 0);
+      const shade = ctx.createLinearGradient(0, 0, width, 0);
+      shade.addColorStop(0, "rgba(3,10,12,0.98)");
+      shade.addColorStop(0.35, "rgba(3,10,12,0.90)");
+      shade.addColorStop(0.65, "rgba(3,10,12,0.18)");
+      shade.addColorStop(1, "rgba(3,10,12,0.04)");
+      ctx.fillStyle = shade;
+      ctx.fillRect(0, 0, width, height);
+      const bottom = ctx.createLinearGradient(0, 410, 0, height);
+      bottom.addColorStop(0, "transparent");
+      bottom.addColorStop(1, "#030a0cef");
+      ctx.fillStyle = bottom;
+      ctx.fillRect(0, 410, width, 220);
+      ctx.fillStyle = "#86fadd";
+      ctx.fillRect(58, 53, 6, 6);
+      ctx.font = '400 12px "IBM Plex Mono"';
+      ctx.letterSpacing = "2px";
+      ctx.fillText("HOVERCRAFT COMBAT SYSTEM", 78, 62);
+      ctx.letterSpacing = "-7px";
+      ctx.font = '700 118px "Space Grotesk"';
+      ctx.fillStyle = "#e9f6f1";
+      ctx.fillText("VECTOR", 52, 248);
+      ctx.lineWidth = 1.7;
+      ctx.strokeStyle = "#a0eddb";
+      ctx.strokeText("WARS", 52, 357);
+      ctx.fillStyle = "#ff5b82";
+      ctx.beginPath();
+      ctx.arc(52 + ctx.measureText("WARS").width + 18, 345, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.letterSpacing = "-0.7px";
+      ctx.font = '500 28px "Space Grotesk"';
+      ctx.fillStyle = "#d7ebe4";
+      ctx.fillText("Into the afterglow.", 58, 418);
+      ctx.font = '400 13px "IBM Plex Mono"';
+      ctx.letterSpacing = "0.3px";
+      ctx.fillStyle = "#a0c8bb";
+      ctx.fillText("BOOST. DRIFT. DESTROY.", 60, 460);
+      ctx.strokeStyle = "#86fadd35";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(58, 542);
+      ctx.lineTo(1142, 542);
+      ctx.stroke();
+      ctx.font = '400 11px "IBM Plex Mono"';
+      ctx.letterSpacing = "1px";
+      ctx.fillStyle = "#93bdaf";
+      ctx.fillText("PLAY IN YOUR BROWSER", 58, 577);
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#d7ebe4";
+      ctx.fillText("VECTOR-WARS.THEBUILDER.DK", 1142, 577);
+      const url = canvas.toDataURL("image/jpeg", 0.94);
+      const image = document.createElement("img");
+      image.src = url;
+      image.alt =
+        "Vector Wars social preview with the Wraith hovercraft and neon wireframe terrain";
+      document.body.prepend(image);
+      const download = document.createElement("a");
+      download.href = url;
+      download.download = "og-image.jpg";
+      download.textContent = "Download 1200 × 630 social image";
+      document.body.append(download);
+      document.querySelector("#status").textContent =
+        "Ready · actual game model and terrain · 1200 × 630";
+      disposeObject(scene);
+      texture.dispose();
+      composer.passes.forEach((pass) => pass.dispose());
+      composer.dispose();
+      renderer.dispose();
+    </script>
+  </body>
+</html>

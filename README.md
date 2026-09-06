@@ -71,3 +71,9 @@ The original interface was checked at 1280×720, 1440×900, and 390×844. The re
 Open `/tests/hud.html` and click **Verify telemetry at all speeds** to check the actual HUD and CSS. It verifies segmentation and unchanged card dimensions at 0, 9, 15, 99, 100, and 320 km/h, including the airborne label. The desktop card measures 312×220 pixels. This fixture is also excluded from the production build.
 
 The [simulated playtest report](tasks/playtest-feedback-2026-09-06.md) records independent subagent findings and this iteration’s responses. It is an expert simulation, not research with recruited players.
+
+## Social preview
+
+`public/og-image.jpg` is the 1200 × 630 social card. Open Graph and Twitter metadata are included in the initial HTML and use `https://vector-wars.thebuilder.dk/`.
+
+To regenerate the card from the current game model and terrain, run the development server and open `/art/social-card.html`, then download the rendered image to `public/og-image.jpg`.

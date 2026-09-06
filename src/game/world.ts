@@ -465,9 +465,19 @@ export function createShip(texture: THREE.Texture) {
   );
   placeholder.rotation.x = -Math.PI / 2;
   body.add(placeholder);
+  let cancelled = false;
+  let resolveReady!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    resolveReady = resolve;
+  });
   new GLTFLoader().load(
     "/models/vxr-01.glb",
     (gltf) => {
+      if (cancelled) {
+        disposeObject(gltf.scene);
+        resolveReady();
+        return;
+      }
       placeholder.traverse((obj) => {
         if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments) {
           obj.geometry.dispose();
@@ -496,10 +506,12 @@ export function createShip(texture: THREE.Texture) {
       // Blender's -Y nose exports along glTF +Z. The game drives along -Z.
       gltf.scene.rotation.y = Math.PI;
       body.add(gltf.scene);
+      resolveReady();
     },
     undefined,
     () => {
-      /* The procedural silhouette remains playable if the model fails to load. */
+      // Keep the procedural silhouette playable when the model cannot load.
+      resolveReady();
     },
   );
   const exhausts: THREE.Sprite[] = [];
@@ -513,7 +525,15 @@ export function createShip(texture: THREE.Texture) {
   underglow.material.opacity = 0.32;
   underglow.position.y = -0.5;
   root.add(underglow);
-  return { root, body, exhausts };
+  return {
+    root,
+    body,
+    exhausts,
+    ready,
+    cancelLoad: () => {
+      cancelled = true;
+    },
+  };
 }
 export function createRelay(index: number, texture: THREE.Texture) {
   const group = new THREE.Group();

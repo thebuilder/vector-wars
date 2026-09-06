@@ -1,0 +1,119 @@
+.game-shell.boot-hidden > :not(.world) {
+  visibility: hidden;
+}
+.game-shell.boot-hidden {
+  pointer-events: none;
+}
+.game-shell.boot-loading .world {
+  opacity: 0;
+}
+.boot-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  color: #bdeddd;
+  font-family: "IBM Plex Mono", monospace;
+  pointer-events: none;
+}
+.boot-status {
+  position: absolute;
+  bottom: 26px;
+  left: 4.5%;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: #97c6b4;
+}
+.boot-progress {
+  position: absolute;
+  bottom: 29px;
+  left: calc(50% - 120px);
+  width: 240px;
+  height: 2px;
+  background: #a1fbd41c;
+}
+.boot-progress i {
+  display: block;
+  height: 100%;
+  background: #a1fbd4;
+  transform-origin: left;
+  box-shadow: 0 0 10px #a1fbd440;
+}
+.boot-skip {
+  position: absolute;
+  bottom: 16px;
+  right: 4.5%;
+  color: #b7ddcd;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: #050a09c9;
+  border: 1px solid #76f7d82a;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  pointer-events: auto;
+}
+.boot-skip span {
+  color: #f67b98;
+  margin-left: 14px;
+}
+.boot-skip:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.opening-track {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #a5c4bc;
+  background: transparent;
+  border: 0;
+  padding: 6px;
+  text-align: left;
+  cursor: pointer;
+  font:
+    9px "IBM Plex Mono",
+    monospace;
+  letter-spacing: 0.06em;
+}
+.opening-track small {
+  display: block;
+  font-size: 7px;
+  color: #699d8e;
+  margin-bottom: 5px;
+  letter-spacing: 0.16em;
+}
+.opening-track:hover {
+  color: #a1fbd4;
+}
+/* Whole menu elements draw in as outlines, then gain their original surfaces. */
+.menu-wire-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  background: transparent !important;
+}
+.menu-wire-preview * {
+  color: transparent !important;
+  -webkit-text-stroke: 0.45px #98eecb;
+  background: transparent !important;
+  border-color: #98eecb88 !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  animation: none !important;
+  transition: none !important;
+}
+.menu-wire-preview svg * {
+  fill: none !important;
+  stroke: #98eecb !important;
+  stroke-width: 0.7px;
+}
+@media (max-width: 700px) {
+  .boot-progress {
+    width: 120px;
+    left: calc(50% - 60px);
+  }
+  .boot-status {
+    bottom: 56px;
+  }
+}

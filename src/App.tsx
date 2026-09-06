@@ -1,3 +1,6 @@
+import { MenuReveal } from "./components/MenuReveal";
+import { BootScreen } from "./components/BootScreen";
+import { OpeningTrack, useOpeningTrack } from "./components/OpeningTrack";
 import { BreachGuide } from "./components/BreachGuide";
 import { DrivingHUD } from "./components/DrivingHUD";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -126,6 +129,7 @@ function WeaponIcon({ weapon }: { weapon: Weapon }) {
   );
 }
 export default function App() {
+  const gameShell = useRef<HTMLElement>(null);
   const host = useRef<HTMLDivElement>(null),
     engine = useRef<GameEngine | null>(null);
   const readHeading = useCallback(() => engine.current?.getHeading() ?? 0, []);
@@ -135,15 +139,51 @@ export default function App() {
   const [dialog, setDialog] = useState<"controls" | "settings" | null>(null);
   const [error, setError] = useState("");
   const [engineReady, setEngineReady] = useState(false);
+  const [boot, setBoot] = useState<"loading" | "scanning" | "complete">(
+    "loading",
+  );
+  const [bootProgress, setBootProgress] = useState(0);
+  const scanProgress = useRef(0);
+  const deployButton = useRef<HTMLButtonElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const menu = state.phase === "ready",
     active = state.phase === "playing" || state.phase === "aftermath",
     level = LEVELS[state.level];
+  const openingTrack = useOpeningTrack(menu, settings.music);
+  const finishBoot = useCallback(() => {
+    engine.current?.finishBootReveal();
+    engine.current?.setInputEnabled(true);
+    setBoot("complete");
+  }, []);
+  useEffect(() => {
+    if (!engineReady || boot !== "loading") return;
+    if (
+      matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      !settings.effects
+    ) {
+      finishBoot();
+      return;
+    }
+    setBoot("scanning");
+    engine.current?.startBootReveal((progress) => {
+      scanProgress.current = progress;
+      setBootProgress(Math.round(progress * 100) / 100);
+      if (progress >= 1) finishBoot();
+    });
+  }, [engineReady, boot, settings.effects, finishBoot]);
+  useEffect(() => {
+    if (boot === "complete")
+      deployButton.current?.focus({ preventScroll: true });
+  }, [boot]);
   useEffect(() => {
     if (!host.current) return;
+    let cancelled = false;
     try {
       engine.current = new GameEngine(host.current, setState, settings);
-      setEngineReady(true);
+      engine.current.setInputEnabled(false);
+      void engine.current.ready.then(() => {
+        if (!cancelled) setEngineReady(true);
+      });
     } catch (error) {
       setError(
         error instanceof Error
@@ -152,6 +192,7 @@ export default function App() {
       );
     }
     return () => {
+      cancelled = true;
       engine.current?.dispose();
       engine.current = null;
     };
@@ -210,8 +251,24 @@ export default function App() {
   ) => setSettings((previous) => ({ ...previous, [key]: value }));
   return (
     <main
-      className={`game-shell ${menu ? "is-menu" : "is-game"} ${settings.effects ? "crt-enabled" : ""}`}
+      ref={gameShell}
+      inert={boot !== "complete"}
+      aria-hidden={boot !== "complete"}
+      className={`game-shell boot-${boot} ${boot !== "complete" ? "boot-hidden" : ""} ${menu ? "is-menu" : "is-game"} ${settings.effects ? "crt-enabled" : ""}`}
     >
+      <MenuReveal
+        shell={gameShell}
+        active={boot === "scanning"}
+        progress={scanProgress}
+      />
+      {boot !== "complete" && (
+        <BootScreen
+          progress={bootProgress}
+          ready={engineReady}
+          error={error}
+          onSkip={finishBoot}
+        />
+      )}
       <div className="world" ref={host} />
       <div className="world-vignette" aria-hidden="true" />
       {settings.effects && <div className="scanlines" aria-hidden="true" />}
@@ -236,10 +293,24 @@ export default function App() {
           </span>
         </a>
         <div className="topbar-center">
-          <i className="led" />
-          <span>CONNECTION ESTABLISHED</span>
-          <span className="divider">/</span>
-          <span>SYS.1986</span>
+          {menu ? (
+            <OpeningTrack
+              playing={openingTrack.playing}
+              blocked={openingTrack.blocked}
+              onToggle={() => {
+                const enabled = !openingTrack.playing;
+                updateSetting("music", enabled);
+                if (enabled) openingTrack.start();
+              }}
+            />
+          ) : (
+            <>
+              <i className="led" />
+              <span>CONNECTION ESTABLISHED</span>
+              <span className="divider">/</span>
+              <span>SYS.1986</span>
+            </>
+          )}
         </div>
         <nav className="toolbar" aria-label="Game settings">
           <Button
@@ -338,6 +409,7 @@ export default function App() {
           </p>
           <div className="launch-actions">
             <Button
+              ref={deployButton}
               variant="primary"
               size="lg"
               className="deploy-button"
@@ -517,7 +589,9 @@ export default function App() {
           <div
             className="hull-impact"
             aria-hidden="true"
-            style={{ opacity: state.hitPulse * (settings.effects ? 1 : 0.35) }}
+            style={{
+              opacity: state.hitPulse * (settings.effects ? 1 : 0.35),
+            }}
           />
           <div
             className="damage-direction"

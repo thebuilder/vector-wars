@@ -1,3 +1,4 @@
+import { BootReveal } from "./boot-reveal";
 import { BossAttackDirector } from "./boss-attacks";
 import { BossHazards } from "./boss-hazards";
 import { ConvoyRoute } from "./convoys";
@@ -117,6 +118,9 @@ const KEY_CODES = new Set([
 
 export class GameEngine {
   private scene = new THREE.Scene();
+  private inputEnabled = true;
+  private bootReveal?: BootReveal;
+  private onBootProgress?: (progress: number) => void;
   private layout: WorldLayout = WORLDS[0];
   private environment?: THREE.Group;
   private selectedOutpost = 0;
@@ -244,6 +248,9 @@ export class GameEngine {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
     this.composer.setSize(width, height);
+    this.bootReveal?.resize(
+      this.renderer.getDrawingBufferSize(new THREE.Vector2()),
+    );
   }
   updateSettings(settings: Settings) {
     this.settings = settings;
@@ -530,6 +537,7 @@ export class GameEngine {
       );
   }
   start() {
+    if (this.inputEnabled === false) return;
     if (this.snapshot.phase === "paused") {
       this.resume();
       return;
@@ -597,6 +605,27 @@ export class GameEngine {
     this.audio.effect("mine");
     this.emit();
   }
+  setInputEnabled(enabled: boolean) {
+    this.inputEnabled = enabled;
+    this.keys.clear();
+    this.mouseFire = false;
+  }
+  get ready() {
+    return this.ship.ready;
+  }
+  startBootReveal(onProgress: (progress: number) => void) {
+    this.finishBootReveal();
+    this.bootReveal = new BootReveal(
+      this.scene,
+      this.renderer.getDrawingBufferSize(new THREE.Vector2()),
+    );
+    this.onBootProgress = onProgress;
+  }
+  finishBootReveal() {
+    this.bootReveal?.dispose();
+    this.bootReveal = undefined;
+    this.onBootProgress = undefined;
+  }
   getHeading() {
     return this.player.heading;
   }
@@ -604,6 +633,7 @@ export class GameEngine {
     return this.snapshot;
   }
   private keyDown = (event: KeyboardEvent) => {
+    if (!this.inputEnabled) return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest('dialog, input, select, textarea, [role="dialog"]'))
       return;
@@ -675,6 +705,7 @@ export class GameEngine {
     if (document.hidden) this.pause();
   };
   private pointerDown = (e: PointerEvent) => {
+    if (!this.inputEnabled) return;
     if (e.button === 0 && this.snapshot.phase === "playing") {
       this.mouseFire = true;
       if (this.fireCooldown <= 0)
@@ -704,6 +735,11 @@ export class GameEngine {
     this.advanceSimulation(dt);
     if (this.snapshot.phase === "ready") this.time += dt;
     this.renderScene(dt);
+    if (this.bootReveal && !document.hidden) {
+      const progress = this.bootReveal.update(dt);
+      this.onBootProgress?.(progress);
+      if (progress >= 1) this.finishBootReveal();
+    }
     this.uiTime += dt;
     if (this.uiTime > 0.1) {
       this.refreshSnapshot();
@@ -1891,6 +1927,8 @@ export class GameEngine {
   }
   dispose() {
     this.destroyed = true;
+    this.finishBootReveal();
+    this.ship.cancelLoad();
     cancelAnimationFrame(this.frame);
     this.observer.disconnect();
     this.audio.dispose();

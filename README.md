@@ -11,7 +11,7 @@ pnpm install
 pnpm dev
 ```
 
-Open the local URL printed by Vite. A current desktop browser with WebGL 2 is required. Sound starts when you deploy. No account, backend, remote fonts, or downloaded audio is required.
+Open the local URL printed by Vite. A current desktop browser with WebGL 2 is required. The wireframe reveal starts automatically and silently. Use Play in the hangar to start the optional opening soundtrack. No account, backend, or remote fonts are required.
 
 ## Controls
 
@@ -49,9 +49,10 @@ The game pauses when its tab loses focus. Sound, music, effects, render quality,
 - Three.js renders the terrain, circuit, bosses, particles, and Blender hovercraft.
 - The simulation runs at a fixed 120 Hz, independent of rendering. Spring suspension, lateral traction, drag, boost, gravity, solid ramp side/rear contacts, launch momentum, pillar collisions, vehicle contact impulses, and boundary response create the driving behavior.
 - Swept segment collisions prevent fast projectiles from passing through targets between simulation steps.
-- The Web Audio soundtrack, engine sound, and weapon effects are synthesized locally.
+- The hangar offers the bundled “Root Access Granted” track, started explicitly with its Play control. It fades out on deployment, resumes in the hangar, and pauses in hidden tabs. Gameplay music, engine sound, and weapon effects are synthesized with Web Audio.
+- The boot sequence reconstructs the world through a grainy wireframe reveal while the full menu assembles from outlined panels and lettering. Skip is always available once the renderer is ready; reduced motion and disabled effects bypass the sweep.
 - Actual Afterglow registry Button, Badge, Progress, and theme tokens are included in `src/components/ui` and `src/afterglow.css`. Source: [Afterglow](https://afterglow.thebuilder.dk/).
-- The visual reference is [thebuilder.dk](https://thebuilder.dk/) and the supplied screenshot. The VXR-01 was created in Blender for this game and exported as `public/models/vxr-01.glb`.
+- The scan technique is adapted from [MengTo’s wireframe reveal](https://github.com/MengTo/Skills/tree/main/agent-skills/web-design/build-wireframe-scan-reveal). The visual reference is [thebuilder.dk](https://thebuilder.dk/) and the supplied screenshot. The VXR-01 was created in Blender for this game and exported as `public/models/vxr-01.glb`.
 
 ## Verification
 

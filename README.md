@@ -4,6 +4,8 @@ A desktop 3D hovercraft combat game. Drive the VXR-01 through three distinct 2.1
 
 ## Run
 
+Use Node.js 24 or 26+ and the pinned pnpm 12 release (Corepack reads `packageManager`).
+
 ```sh
 pnpm install
 pnpm dev

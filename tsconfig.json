@@ -16,7 +16,7 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "baseUrl": ".",
+    "types": ["node", "vite/client"],
     "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src", "vite.config.ts"]

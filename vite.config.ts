@@ -6,9 +6,14 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: { three: ["three"], react: ["react", "react-dom"] },
+        codeSplitting: {
+          groups: [
+            { name: "three", test: /node_modules\/three\// },
+            { name: "react", test: /node_modules\/(react|react-dom|scheduler)\// },
+          ],
+        },
       },
     },
   },
